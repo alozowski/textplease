@@ -59,7 +59,8 @@ textplease uses a modular pipeline designed for accuracy and flexibility:
 2. ASR Transcription: converts speech to text using advanced neural models.
 3. Smart Segmentation: groups text into logical segments using:
     - pause detection (silence-based boundaries);
-    - semantic analysis (topic coherence via sentence embeddings).
+    - semantic analysis (topic coherence via sentence embeddings);
+    - Note: max_segment_words limits the length of merged segments, but does not enforce splitting of already long segments. Segments from ASR exceeding this limit will remain intact unless additional logic is added to enforce strict splitting.
 4. Post-Processing: cleans, deduplicates, and formats the final output.
 ```mermaid
 flowchart TD
@@ -90,8 +91,6 @@ flowchart TD
 - [nvidia/parakeet-tdt-0.6b-v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) — fast, modern, accurate (recommended);
 - extensible architecture supports additional Hugging Face models.
 
-> ⚠️ Note: `textplease/backends/transformers_pipeline.py` hasn't been tested, it serves to demonstrate the extensibility of the project.
-
 ## 📥 Output Format
 Transcripts are saved as tab-separated `.csv` files with:
 | start\_time | end\_time | text                   |
@@ -106,6 +105,8 @@ Transcripts are saved as tab-separated `.csv` files with:
 - Docker ready for an easy deployment.
 
 ## 📌 TODO
+- [ ] Improve `transformers_pipeline.py`
+- [ ] Think about a better segmentation in `textplease/segmenter.py`
 - [ ] Optional NLP post-processing (summarisation)
 - [ ] API inference integration (OpenAI, Hugging Face Inference Endpoints)
 - [ ] Multilingual support
