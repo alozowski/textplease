@@ -18,9 +18,9 @@ venv/
 
 # Logs and local results
 *.log
-.results
-.input
-.output
+results
+input
+output
 
 # IDEs and editors
 .vscode/
