@@ -100,6 +100,14 @@ def run_transcription_pipeline(config: Dict) -> None:
     )
     logger.info(f"Final segments after post-processing: {len(final_segments)}")
 
+    # Delete existing output file if it exists
+    if os.path.exists(output_path):
+        try:
+            os.remove(output_path)
+            logger.info(f"Removed existing output file: {output_path}")
+        except Exception as e:
+            logger.warning(f"Could not delete existing output file: {e}")
+            
     saved_path = save_to_csv(final_segments, output_path)
     logger.info(f"Saved segments to: {saved_path}")
 
