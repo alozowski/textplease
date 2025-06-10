@@ -134,9 +134,9 @@ def launch_gradio():
         with gr.Accordion("⚙️ Advanced Settings", open=False):
             chunk_duration_minutes = gr.Slider(1, 60, value=1, label="Chunk Duration (minutes)")
             max_batch_size = gr.Slider(1, 8, value=1, label="Max Batch Size")
-            similarity_threshold = gr.Slider(0.0, 1.0, step=0.01, value=0.65, label="Similarity Threshold")
+            similarity_threshold = gr.Slider(0.0, 1.0, step=0.01, value=0.45, label="Similarity Threshold")
             pause_threshold = gr.Slider(0.5, 10.0, step=0.5, value=3.0, label="Pause Threshold (seconds)")
-            max_segment_words = gr.Slider(10, 500, step=10, value=100, label="Max Segment Words")
+            max_segment_words = gr.Slider(10, 500, step=10, value=10, label="Max Segment Words")
             min_segment_words = gr.Slider(1, 20, value=3, label="Min Segment Words")
             min_segment_chars = gr.Slider(1, 100, value=20, label="Min Segment Characters")
 
