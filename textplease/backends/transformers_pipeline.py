@@ -6,6 +6,8 @@ import torch
 import torchaudio
 from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq, pipeline
 
+from textplease.utils.time_utils import format_time
+
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +85,8 @@ def transcribe(
             if text:
                 duration_seconds = len(audio_array) / SAMPLE_RATE
                 segments.append({
-                    "start_time": _format_time_hhmmss(0),
-                    "end_time": _format_time_hhmmss(duration_seconds),
+                    "start_time": format_time(0),
+                    "end_time": format_time(duration_seconds),
                     "text": text,
                 })
         else:
@@ -92,8 +94,8 @@ def transcribe(
                 timestamp = chunk.get("timestamp", [0, 0])
                 if len(timestamp) >= 2 and chunk.get("text", "").strip():
                     segments.append({
-                        "start_time": _format_time_hhmmss(timestamp[0]),
-                        "end_time": _format_time_hhmmss(timestamp[1]),
+                        "start_time": format_time(timestamp[0]),
+                        "end_time": format_time(timestamp[1]),
                         "text": chunk["text"].strip(),
                     })
 
@@ -111,11 +113,3 @@ def transcribe(
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-
-
-def _format_time_hhmmss(seconds: float) -> str:
-    """Convert time in seconds to HH:MM:SS format"""
-    hours = int(seconds // 3600)
-    minutes = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    return f"{hours:02d}:{minutes:02d}:{secs:02d}"

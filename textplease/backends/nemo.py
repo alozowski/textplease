@@ -9,6 +9,8 @@ import torch
 import nemo.collections.asr as nemo_asr
 from pydub import AudioSegment
 
+from textplease.utils.time_utils import format_time
+
 
 logger = logging.getLogger(__name__)
 
@@ -145,8 +147,8 @@ def _group_words_into_segments(
 
         if should_split:
             segments.append({
-                "start_time": _format_time(start + offset),
-                "end_time": _format_time(end + offset),
+                "start_time": format_time(start + offset),
+                "end_time": format_time(end + offset),
                 "text": " ".join(current_words),
             })
             start, end = w_start, w_end
@@ -157,8 +159,8 @@ def _group_words_into_segments(
 
     if current_words:
         segments.append({
-            "start_time": _format_time(start + offset),
-            "end_time": _format_time(end + offset),
+            "start_time": format_time(start + offset),
+            "end_time": format_time(end + offset),
             "text": " ".join(current_words).strip(),
         })
 
@@ -168,8 +170,8 @@ def _group_words_into_segments(
 def _fallback_text_segment(text: str, offset: float) -> Dict[str, Any]:
     """Create a default segment when detailed word-level timestamps are unavailable"""
     return {
-        "start_time": _format_time(offset),
-        "end_time": _format_time(offset + FALLBACK_SEGMENT_DURATION_SEC),
+        "start_time": format_time(offset),
+        "end_time": format_time(offset + FALLBACK_SEGMENT_DURATION_SEC),
         "text": text.strip(),
     }
 
@@ -177,14 +179,6 @@ def _fallback_text_segment(text: str, offset: float) -> Dict[str, Any]:
 def _ends_sentence(word: str) -> bool:
     """Determine if a word ends a sentence based on punctuation"""
     return bool(re.search(r"[.!?]$", word.strip()))
-
-
-def _format_time(seconds: float) -> str:
-    """Convert float seconds to HH:MM:SS format"""
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) % 60 // 1)
-    s = int(seconds % 60)
-    return f"{h:02}:{m:02}:{s:02}"
 
 
 def _clear_torch_memory() -> None:
