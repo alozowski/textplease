@@ -34,14 +34,26 @@ def transcribe_audio(
     )
 
     transcriber = get_backend_transcriber(model_name)
-    return transcriber(
-        audio_path,
-        model_name=model_name,
-        device=device,
-        chunk_duration_minutes=chunk_duration_minutes,
-        pause_threshold=pause_threshold,
-        batch_size=batch_size,
-    )
+
+    if "parakeet" in model_name.lower() or "nemo" in model_name.lower():
+        return transcriber(
+            audio_path,
+            model_name=model_name,
+            device=device,
+            chunk_duration_minutes=chunk_duration_minutes,
+            pause_threshold=pause_threshold,
+            batch_size=batch_size,
+        )
+    else:
+        return transcriber(
+            audio_path,
+            waveform=None,
+            model_name=model_name,
+            device=device,
+            chunk_duration_minutes=chunk_duration_minutes,
+            pause_threshold=pause_threshold,
+            batch_size=batch_size,
+        )
 
 
 def get_backend_transcriber(model_name: str) -> Callable:
