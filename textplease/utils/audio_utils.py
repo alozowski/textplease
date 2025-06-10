@@ -47,7 +47,7 @@ def extract_audio(input_path: str) -> str:
             output_path = f"{base}_processed.wav"
 
     else:
-        logger.info(f"Converting non-WAV file '{input_path}' to WAV")
+        logger.info(f"Converting non-WAV file '{input_path}' to mono 16kHz WAV format")
         output_path = f"{base}.wav"
 
     return _convert_to_mono_wav(input_path, output_path)
