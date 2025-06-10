@@ -1,4 +1,4 @@
-# 📝 text please! — Intelligent Audio Transcription
+# 📝 text, please! — Intelligent Audio Transcription
 
 **textplease** transforms your long-form audio and video files into accurate, structured transcripts with intelligent segmentation and precise timestamps.
 

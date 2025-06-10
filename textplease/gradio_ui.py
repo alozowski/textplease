@@ -121,7 +121,7 @@ def launch_gradio():
     with gr.Blocks(title="textplease transcriber").queue() as demo:
         tracker = gr.State(Tracker())
 
-        gr.Markdown("## 🎙️ text please!")
+        gr.Markdown("## 🎙️ text, please!")
         gr.Markdown("Upload an audio file, configure settings, and receive a transcript 📝")
 
         with gr.Row():
