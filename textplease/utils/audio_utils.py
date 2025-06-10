@@ -39,7 +39,10 @@ def extract_audio(input_path: str) -> str:
                 logger.info("Input WAV is already mono 16kHz. Skipping re-encoding.")
                 return input_path
 
-            logger.info(f"Re-encoding WAV due to format mismatch (channels={channels}, sample_rate={sample_rate})")
+            logger.warning(
+                f"WAV file '{input_path}' has incompatible format (channels={channels}, sample_rate={sample_rate}). "
+                "Re-encoding to mono 16kHz WAV."
+            )
             output_path = f"{base}_processed.wav"
 
         except ffmpeg.Error as e:
@@ -47,7 +50,7 @@ def extract_audio(input_path: str) -> str:
             output_path = f"{base}_processed.wav"
 
     else:
-        logger.info(f"Converting non-WAV file '{input_path}' to mono 16kHz WAV format")
+        logger.warning(f"Input file '{input_path}' is not a WAV. Converting and re-encoding to mono 16kHz WAV.")
         output_path = f"{base}.wav"
 
     return _convert_to_mono_wav(input_path, output_path)
