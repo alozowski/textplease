@@ -106,8 +106,8 @@ Transcripts are saved as tab-separated `.csv` files with:
 - Docker ready for an easy deployment.
 
 ## 📌 TODO
-[ ] Optional NLP post-processing (summarisation)
-[ ] API inference intregration (openai, Hugging Face Inference Endpoints)
-[ ] Multilingual support
-[ ] Diarization (multi-speaker support)
-[ ] Subtitle generation (.srt)
+- [ ] Optional NLP post-processing (summarisation)
+- [ ] API inference integration (OpenAI, Hugging Face Inference Endpoints)
+- [ ] Multilingual support
+- [ ] Diarization (multi-speaker support)
+- [ ] Subtitle generation (.srt)
