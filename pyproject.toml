@@ -1,0 +1,55 @@
+[project]
+name = "textplease"
+version = "0.1.0"
+authors = [
+    { name = "Alina Lozovskaia", email = "alinailozovskaya@gmail.com" },
+]
+description = "Get a text transcription from an uploaded media file"
+readme = "README.md"
+requires-python = "==3.12.1"
+dependencies = [
+    "ffmpeg-python>=0.2.0",
+    "pandas>=2.3.0",
+    "pyyaml>=6.0.2",
+    "sentence-transformers>=4.1.0",
+    "ruff>=0.11.13",
+    "peft>=0.15.2",
+    "soundfile>=0.13.1",
+    "transformers == 4.52.0",
+    "torch>=2.6.0",
+    "torchaudio>=2.6.0",
+    "nemo-toolkit[asr]>=2.3.1",
+    "requests>=2.32.3",
+    "gradio>=5.33.1",
+]
+
+[project.scripts]
+textplease = "textplease.main:main"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["textplease*"]
+
+[tool.ruff]
+line-length = 119
+
+lint.ignore = ["E501", "C901", "F841"]
+lint.select = ["C", "E", "F", "I", "W"]
+lint.fixable = ["A", "B", "C", "D", "E", "F", "I", "W"]
+preview = true
+
+[tool.ruff.lint.isort]
+length-sort = true
+lines-after-imports = 2
+no-lines-before = ["standard-library", "local-folder"]
+known-local-folder = ["textplease"]
+split-on-trailing-comma = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
