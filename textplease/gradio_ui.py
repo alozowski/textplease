@@ -1,6 +1,10 @@
+import io
+import os
+import sys
 import shutil
+import signal
 import logging
-import traceback
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -18,6 +22,156 @@ OUTPUT_DIR = Path("output")
 INPUT_DIR = Path("input")
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 INPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+class SubprocessManager:
+    """Manages a transcription subprocess with start/stop/kill functionality."""
+
+    def __init__(self, session_id: str = "default"):
+        self.session_id = session_id
+        self.process: subprocess.Popen | None = None
+        self.output_stream = io.StringIO()
+        self.exit_code: int | None = None
+        self.config_path: Path | None = None
+
+    def start_process(self, config_path: Path, custom_env: dict | None = None):
+        """Start the transcription subprocess."""
+        if self.is_running():
+            logger.info("Process is already running")
+            return
+
+        self.output_stream = io.StringIO()
+        self.exit_code = None
+        self.config_path = config_path
+
+        command = [sys.executable, "-m", "textplease.main", "--config", str(config_path)]
+
+        env = os.environ.copy()
+        if custom_env:
+            env.update(custom_env)
+
+        try:
+            logger.info(f"Starting process with command: {' '.join(command)}")
+            # Use start_new_session to create a process group for proper cleanup
+            self.process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                env=env,
+                start_new_session=True,  # Creates a new process group
+            )
+            # Set non-blocking mode for reading
+            os.set_blocking(self.process.stdout.fileno(), False)
+            logger.info(f"Started process with PID: {self.process.pid}")
+        except Exception as e:
+            logger.error(f"Failed to start process: {str(e)}")
+            raise
+
+    def read_output(self) -> str:
+        """Read subprocess output and return current log."""
+        if self.process and self.process.stdout:
+            try:
+                while True:
+                    line = self.process.stdout.readline()
+                    if line:
+                        self.output_stream.write(line)
+                    else:
+                        break
+            except BlockingIOError:
+                pass
+
+        return self.output_stream.getvalue()
+
+    def stop_process(self):
+        """Terminate the subprocess gracefully."""
+        if not self.is_running():
+            logger.info("Process is not running")
+            return
+
+        logger.info("Sending SIGTERM to the process group")
+        try:
+            # Send SIGTERM to the entire process group
+            pid = self.process.pid
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGTERM)
+                logger.info(f"Sent SIGTERM to process group {pid}")
+            except ProcessLookupError:
+                logger.warning(f"Process group {pid} not found, trying direct termination")
+                self.process.terminate()
+
+            self.exit_code = self.process.wait(timeout=5)
+            logger.info(f"Process terminated with exit code {self.exit_code}")
+        except subprocess.TimeoutExpired:
+            logger.warning("Process did not terminate within timeout, sending SIGKILL")
+            self.kill_process()
+
+    def kill_process(self):
+        """Forcefully kill the subprocess and all its children."""
+        if not self.is_running():
+            logger.info("Process is not running")
+            return
+
+        logger.info("Sending SIGKILL to the process group")
+        try:
+            # Send SIGKILL to the entire process group to ensure all children are killed
+            pid = self.process.pid
+            try:
+                os.killpg(os.getpgid(pid), signal.SIGKILL)
+                logger.info(f"Sent SIGKILL to process group {pid}")
+            except ProcessLookupError:
+                logger.warning(f"Process group {pid} not found, trying direct kill")
+                self.process.kill()
+
+            self.exit_code = self.process.wait(timeout=5)
+            logger.info(f"Process killed with exit code {self.exit_code}")
+        except subprocess.TimeoutExpired:
+            logger.error("Process could not be killed within timeout")
+        except Exception as e:
+            logger.error(f"Error during kill: {e}")
+            # Fallback to direct kill
+            try:
+                self.process.kill()
+                self.exit_code = self.process.wait(timeout=2)
+            except:
+                pass
+
+    def is_running(self) -> bool:
+        """Check if the subprocess is still running."""
+        if self.process is None:
+            return False
+        return self.process.poll() is None
+
+    def get_exit_details(self) -> tuple[int | None, str]:
+        """Return exit code and reason if process has terminated."""
+        if self.process is None:
+            return None, "Process was never started"
+
+        if self.is_running():
+            return None, "Process is still running"
+
+        if self.exit_code is not None and self.exit_code != 0:
+            return self.exit_code, "Process exited abnormally"
+
+        return self.exit_code, "Process exited normally"
+
+    def __del__(self):
+        """Cleanup when object is deleted."""
+        if self.process and self.is_running():
+            try:
+                # Try to kill the entire process group
+                pid = self.process.pid
+                try:
+                    os.killpg(os.getpgid(pid), signal.SIGKILL)
+                except:
+                    self.process.kill()
+            except:
+                pass
+
+
+# Global subprocess manager
+PROCESS_MANAGER = SubprocessManager()
 
 
 def _prepare_input_files(audio_file) -> tuple[Path, Path]:
@@ -78,50 +232,7 @@ def _create_transcription_config(
     }
 
 
-def _execute_and_report(
-    config: dict,
-    input_path: Path,
-    output_path: Path,
-) -> tuple[str, str | None]:
-    """Execute transcription and report results."""
-    config_path = OUTPUT_DIR / f"{input_path.stem}_config.yaml"
-
-    try:
-        with open(config_path, "w") as f:
-            yaml.dump(config, f)
-    except Exception as e:
-        logger.error(f"Failed to save config: {e}")
-        return f"❌ Error saving config: {e}", None
-
-    try:
-        # Late import to avoid circular dependency
-        from textplease.main import run_transcription_pipeline
-        run_transcription_pipeline(config)
-
-        if not output_path.exists():
-            raise RuntimeError(
-                f"Transcription completed but output file not found: {output_path}"
-            )
-
-        return (
-            f"✅ Transcription complete!\n"
-            f"📄 Transcript saved to: `{output_path}`\n"
-            f"🛠️ Configuration saved to: `{config_path}`",
-            str(output_path),
-        )
-    except Exception as e:
-        logger.error(f"Transcription failed: {e}", exc_info=True)
-        logger.debug(traceback.format_exc())
-        return f"❌ Error: {e}", None
-    finally:
-        if INPUT_DIR.exists():
-            try:
-                shutil.rmtree(INPUT_DIR, ignore_errors=True)
-            except Exception as e:
-                logger.warning(f"Failed to cleanup input directory: {e}")
-
-
-def start_transcription(
+def start_task(
     audio_file,
     chunk_duration_minutes,
     max_batch_size,
@@ -134,15 +245,12 @@ def start_transcription(
     model_name,
     device,
 ):
-    """Start transcription process with proper file handling and configuration."""
+    """Start transcription process in subprocess."""
     if audio_file is None:
-        return (
-            "❌ Please upload an audio file.",
-            gr.update(visible=False),                    # download_button
-            gr.update(interactive=False, value=False),   # show_transcript
-            gr.update(visible=False, value=None),        # csv_preview
-            None,                                        # transcript_state
-        )
+        return "❌ Please upload an audio file.", gr.update(visible=False), None
+
+    if PROCESS_MANAGER.is_running():
+        return "⚠️ A transcription is already running. Please stop it first.", gr.update(visible=False), None
 
     try:
         input_path, output_path = _prepare_input_files(audio_file)
@@ -160,61 +268,66 @@ def start_transcription(
             model_name,
             device,
         )
-        status_msg, output_file = _execute_and_report(config, input_path, output_path)
 
-        if output_file:
-            # Success: show download button, enable and check preview checkbox, show preview
-            # Load and display the preview immediately
-            try:
-                df = pd.read_csv(output_file, sep="\t")
-                head = df.head(10)
-                preview_data = gr.update(
-                    visible=True,
-                    value={
-                        "data": head.values.tolist(),
-                        "headers": list(head.columns),
-                    },
-                )
-            except Exception as e:
-                logger.error(f"Failed to load preview: {e}")
-                preview_data = gr.update(
-                    visible=True,
-                    value=[[f"Error loading preview: {str(e)}"]],
-                )
+        config_path = OUTPUT_DIR / f"{input_path.stem}_config.yaml"
+        with open(config_path, "w") as f:
+            yaml.dump(config, f)
 
-            return (
-                status_msg,
-                gr.update(value=output_file, visible=True),  # Show download button
-                gr.update(interactive=True, value=True),      # Enable AND check the checkbox
-                preview_data,                                 # Show the preview immediately
-                output_file,  # state with transcript path
-            )
-        else:
-            return (
-                status_msg,
-                gr.update(visible=False),  # Hide download button
-                gr.update(interactive=False, value=False),
-                gr.update(visible=False, value=None),
-                None,
-            )
+        PROCESS_MANAGER.start_process(config_path)
+
+        return (
+            f"✅ Transcription started!\n📄 Output will be saved to: {output_path}",
+            gr.update(visible=False),
+            str(output_path),
+        )
 
     except (ValueError, FileNotFoundError, IOError) as e:
-        return (
-            f"❌ File error: {e}",
-            gr.update(visible=False),
-            gr.update(interactive=False, value=False),
-            gr.update(visible=False, value=None),
-            None,
-        )
+        return f"❌ File error: {e}", gr.update(visible=False), None
     except Exception as e:
-        logger.error(f"Unexpected error in start_transcription: {e}", exc_info=True)
-        return (
-            f"❌ Unexpected error: {e}",
-            gr.update(visible=False),
-            gr.update(interactive=False, value=False),
-            gr.update(visible=False, value=None),
-            None,
-        )
+        logger.error(f"Unexpected error starting transcription: {e}", exc_info=True)
+        return f"❌ Unexpected error: {e}", gr.update(visible=False), None
+
+
+def stop_task():
+    """Stop the running transcription process."""
+    if not PROCESS_MANAGER.is_running():
+        return "⚠️ No process is currently running."
+
+    PROCESS_MANAGER.stop_process()
+    return "🛑 Process stopped."
+
+
+def update_process_status():
+    """Update process status for display."""
+    if not PROCESS_MANAGER.is_running():
+        exit_code, exit_reason = PROCESS_MANAGER.get_exit_details()
+        if exit_reason == "Process was never started":
+            status_text = "Process Status: Not started"
+        else:
+            status_text = f"Process Status: Stopped - {exit_reason}"
+            if exit_code is not None:
+                status_text += f", exit code: {exit_code}"
+        return gr.update(value=False, label=status_text)
+
+    return gr.update(value=True, label="Process Status: Running")
+
+
+def update_log_output(transcript_state):
+    """Update log output and check for completion."""
+    log_text = PROCESS_MANAGER.read_output()
+
+    # Check if process completed successfully
+    if not PROCESS_MANAGER.is_running() and transcript_state:
+        output_path = Path(transcript_state)
+        if output_path.exists():
+            # Process completed successfully
+            return (
+                log_text,
+                gr.update(value=output_path, visible=True),
+                gr.update(interactive=True, value=True),
+            )
+
+    return log_text, gr.update(visible=False), gr.update(interactive=False, value=False)
 
 
 def show_audio_info(file):
@@ -238,9 +351,7 @@ def show_audio_info(file):
 
 
 def preview_transcript(show: bool, file_path: str | None):
-    r"""Preview transcript file.
-
-    The file is named *.csv but content is tab-separated, so we load with sep="\t".
+    """Preview transcript file.
     """
     logger.info(
         f"preview_transcript called: show={show}, file_path={file_path}, type={type(file_path)}"
@@ -413,11 +524,19 @@ def launch_gradio():
                 info="Minimum characters per segment (default: 15)",
             )
 
-        run_button = gr.Button("🚀 Start Transcription", variant="primary")
-        clear_btn = gr.Button("🧹 Clear Inputs")
-        status_text = gr.Textbox(label="Status", value="Waiting...", interactive=False, lines=3)
+        gr.Markdown("### Process Control")
+        with gr.Row():
+            start_button = gr.Button("🚀 Start Task", variant="primary")
+            stop_button = gr.Button("🛑 Stop Task")
 
-        # Use DownloadButton for file downloads
+        process_status = gr.Checkbox(label="Process Status: Not started", interactive=False)
+        status_text = gr.Textbox(label="Status", value="Ready to start...", interactive=False, lines=2)
+
+        # Log output with auto-scroll
+        with gr.Accordion("📋 Process Log", open=False):
+            log_output = gr.Code(language=None, lines=15, interactive=False)
+
+        # Download and preview
         download_button = gr.DownloadButton(
             label="📥 Download Transcript",
             visible=False,
@@ -445,9 +564,9 @@ def launch_gradio():
             outputs=[model_name],
         )
 
-        # Main transcription event
-        run_button.click(
-            start_transcription,
+        # Start task
+        start_button.click(
+            start_task,
             inputs=[
                 audio_input,
                 chunk_duration_minutes,
@@ -464,22 +583,48 @@ def launch_gradio():
             outputs=[
                 status_text,
                 download_button,
-                show_transcript,
-                csv_preview,
                 transcript_state,
             ],
-            show_progress="full",
         )
 
+        # Stop task
+        stop_button.click(stop_task, outputs=status_text)
+
+        # Auto-update status and logs
+        status_timer = gr.Timer(2.0, active=True)
+        status_timer.tick(update_process_status, outputs=process_status)
+
+        log_timer = gr.Timer(1.0, active=True)
+        log_timer.tick(
+            update_log_output,
+            inputs=[transcript_state],
+            outputs=[log_output, download_button, show_transcript],
+        )
+
+        # Preview transcript when checkbox is toggled
+        show_transcript.change(
+            preview_transcript,
+            inputs=[show_transcript, transcript_state],
+            outputs=csv_preview,
+        )
+
+        # Clear functionality
+        clear_btn = gr.Button("🧹 Clear All")
+
         def clear_all():
+            # Stop any running process
+            if PROCESS_MANAGER.is_running():
+                PROCESS_MANAGER.stop_process()
+
             return (
-                None,                                   # audio_input
-                None,                                   # audio_preview
-                "Waiting...",                           # status_text
-                gr.update(visible=False),               # download_button
+                None,                                       # audio_input
+                None,                                       # audio_preview
+                "Ready to start...",                        # status_text
+                gr.update(visible=False),                   # download_button
                 gr.update(value=False, interactive=False),  # show_transcript
-                gr.update(visible=False, value=None),   # csv_preview
-                None,                                   # transcript_state
+                gr.update(visible=False, value=None),       # csv_preview
+                None,                                       # transcript_state
+                "",                                         # log_output
             )
 
         clear_btn.click(
@@ -492,20 +637,8 @@ def launch_gradio():
                 show_transcript,
                 csv_preview,
                 transcript_state,
+                log_output,
             ],
-        )
-
-        # Preview transcript when checkbox is toggled
-        show_transcript.change(
-            preview_transcript,
-            inputs=[show_transcript, transcript_state],
-            outputs=csv_preview,
-        )
-
-        download_button.click(
-            lambda file_path: file_path,  # Return the file path from state
-            inputs=[transcript_state],
-            outputs=[download_button],
         )
 
     demo.launch(share=True)
