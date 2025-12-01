@@ -96,19 +96,3 @@ Transcripts are saved as tab-separated `.csv` files with:
 | start\_time | end\_time | text                   |
 | ----------- | --------- | ---------------------- |
 | 00:00:00    | 00:00:06  | Welcome to the demo... |
-
-
-## 🎛️ Advanced Features
-- Automatic CUDA and MPS (Apple Metal) support for faster processing.
-- Handles arbitrarily long files without memory issues.
-- Automatic format conversion and resampling.
-- Docker ready for an easy deployment.
-
-## 📌 TODO
-- [ ] Improve `transformers_pipeline.py`
-- [ ] Think about a better segmentation in `textplease/segmenter.py`
-- [ ] Optional NLP post-processing (summarisation)
-- [ ] API inference integration (OpenAI, Hugging Face Inference Endpoints)
-- [ ] Multilingual support
-- [ ] Diarization (multi-speaker support)
-- [ ] Subtitle generation (.srt)
