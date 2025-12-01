@@ -20,10 +20,9 @@ git clone https://github.com/yourname/textplease.git
 cd textplease
 
 # Install dependencies using uv (recommended)
-uv sync
-
-# Activate the environment
+uv venv --python 3.12.1
 source .venv/bin/activate
+uv sync
 ```
 
 ### Usage Options
@@ -55,13 +54,18 @@ After the process completes, the transcript will be saved to the path specified 
 
 ## 🏗️ How It Works
 textplease uses a modular pipeline designed for accuracy and flexibility:
-1. Audio Processing: extracts and preprocesses audio from video/audio files.
-2. ASR Transcription: converts speech to text using advanced neural models.
-3. Smart Segmentation: groups text into logical segments using:
-    - pause detection (silence-based boundaries);
-    - semantic analysis (topic coherence via sentence embeddings);
-    - Note: max_segment_words limits the length of merged segments, but does not enforce splitting of already long segments. Segments from ASR exceeding this limit will remain intact unless additional logic is added to enforce strict splitting.
-4. Post-Processing: cleans, deduplicates, and formats the final output.
+1. **Audio Processing**: extracts and preprocesses audio from video/audio files.
+2. **ASR Transcription**: converts speech to text using advanced neural models.
+   - Supports both English-only (NeMo) and multilingual (Whisper) models
+   - Language parameter available for Whisper models (supports 97+ languages)
+   - Removes duplicate segments caused by chunk overlaps
+3. **Smart Segmentation**: groups text into logical segments using:
+   - Pause detection (silence-based boundaries)
+   - Semantic analysis (topic coherence via sentence embeddings)
+4. **Post-Processing**: enforces length constraints and formats the final output.
+   - Merges segments that are too short
+   - Splits segments that are too long (respects max_segment_words limit)
+   - Filters empty segments and saves to CSV
 ```mermaid
 flowchart TD
     A[config.yaml] --> B@{ shape: "hex", label: "main.py" }
@@ -88,8 +92,13 @@ flowchart TD
 ```
 
 ## 🤖 Supported Models
-- [nvidia/parakeet-tdt-0.6b-v2](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2) — fast, modern, accurate (recommended);
-- extensible architecture supports additional Hugging Face models.
+
+### NeMo Backend (English only)
+- [nvidia/parakeet-ctc-1.1b](https://huggingface.co/nvidia/parakeet-ctc-1.1b) — fast, modern, accurate
+
+### Transformers Backend (Multilingual)
+- [openai/whisper-large-v3](https://huggingface.co/openai/whisper-large-v3) — multilingual model (recommended for non-English)
+- Extensible architecture supports additional Hugging Face models
 
 ## 📥 Output Format
 Transcripts are saved as tab-separated `.csv` files with:
