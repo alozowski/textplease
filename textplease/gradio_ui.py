@@ -408,7 +408,7 @@ def launch_gradio():
                 1,
                 100,
                 value=15,
-                step=5,
+                step=1,
                 label="Min Segment Characters",
                 info="Minimum characters per segment (default: 15)",
             )
