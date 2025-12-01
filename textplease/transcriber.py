@@ -1,5 +1,5 @@
 import logging
-from typing import Any, Callable
+from pathlib import Path
 
 from textplease.utils.logging_config import configure_logging
 
@@ -11,72 +11,119 @@ logger = logging.getLogger(__name__)
 def transcribe_audio(
     audio_path: str,
     model_name: str,
-    device: str = "cpu",
+    device: str,
     chunk_duration_minutes: int = 10,
     pause_threshold: float = 2.0,
     batch_size: int = 1,
-) -> Any:
-    """Transcribe an audio file using a specified ASR model.
+    language: str | None = None,
+    max_segment_words: int = 100,
+    min_segment_words: int = 3,
+    min_segment_chars: int = 15,
+) -> list[dict]:
+    """Unified entrypoint for transcribing audio using different ASR backends.
+
+    Routes to appropriate backend based on model name.
 
     Args:
-        audio_path: Path to the .wav audio file.
-        model_name: ASR model name (in a Hugging Face format).
-        device: Hardware device to run inference on ("cpu", "cuda", "mps").
-        chunk_duration_minutes: Duration to split long audios into smaller chunks.
-        pause_threshold: Duration of silence (in seconds) that defines segment boundaries.
-        batch_size: Number of audio chunks processed in a batch.
+        audio_path: Path to the audio file to transcribe
+        model_name: Name/identifier of the ASR model to use
+        device: Device for inference ('cpu', 'cuda', 'mps')
+        chunk_duration_minutes: Maximum chunk duration in minutes
+        pause_threshold: Pause threshold in seconds for segmentation
+        batch_size: Batch size for processing
+        language: Language code (e.g., 'en', 'es') for Whisper models
+        max_segment_words: Maximum words per segment
+        min_segment_words: Minimum words per segment
+        min_segment_chars: Minimum characters per segment
 
     Returns:
-        List of dictionaries with keys such as 'text', 'start_time', 'end_time'.
-    """
-    logger.info(
-        f"Transcribing '{audio_path}' using '{model_name}' on '{device}' | Chunk: {chunk_duration_minutes}min | Pause: {pause_threshold}s"
-    )
-
-    transcriber = get_backend_transcriber(model_name)
-
-    if "parakeet" in model_name.lower() or "nemo" in model_name.lower():
-        return transcriber(
-            audio_path,
-            model_name=model_name,
-            device=device,
-            chunk_duration_minutes=chunk_duration_minutes,
-            pause_threshold=pause_threshold,
-            batch_size=batch_size,
-        )
-    else:
-        return transcriber(
-            audio_path,
-            waveform=None,
-            model_name=model_name,
-            device=device,
-            chunk_duration_minutes=chunk_duration_minutes,
-            pause_threshold=pause_threshold,
-            batch_size=batch_size,
-        )
-
-
-def get_backend_transcriber(model_name: str) -> Callable:
-    """Return a transcription function based on the model name.
-
-    Args:
-        model_name: Name of the ASR model.
-
-    Returns:
-        A callable that performs audio transcription.
+        List of transcription segments with timestamps and text
 
     Raises:
-        ValueError: If no backend is matched to the model name.
+        ValueError: If the model name doesn't match any supported backend
+        ImportError: If required backend dependencies are not installed
+        FileNotFoundError: If audio file doesn't exist
+        Exception: If transcription fails for any other reason
+
     """
+    if not model_name or not isinstance(model_name, str):
+        raise ValueError(f"Invalid model_name: {model_name}")
+
+    if not audio_path or not isinstance(audio_path, str):
+        raise ValueError(f"Invalid audio_path: {audio_path}")
+
+    # Verify audio file exists before attempting transcription
+    audio_file = Path(audio_path)
+    if not audio_file.exists():
+        raise FileNotFoundError(f"Audio file not found: {audio_path}")
+
+    if not audio_file.is_file():
+        raise ValueError(f"Audio path is not a file: {audio_path}")
+
     model_name_lower = model_name.lower()
 
-    if "parakeet" in model_name_lower or "nvidia" in model_name_lower:
-        from textplease.backends.nemo import transcribe
+    try:
+        if "whisper" in model_name_lower:
+            try:
+                from textplease.backends.transformers_pipeline import transcribe as whisper_transcribe
+            except ImportError as e:
+                logger.error(f"Failed to import Whisper backend: {e}")
+                raise ImportError(
+                    "Whisper backend dependencies not installed. "
+                    "Install with: pip install transformers torch torchaudio"
+                ) from e
 
-        logger.debug(f"Selected Nvidia backend for model '{model_name}'")
-    else:
-        from textplease.backends.transformers_pipeline import transcribe
+            logger.info(f"Using Whisper backend with model: {model_name}")
 
-        logger.debug(f"Selected HuggingFace Transformers backend for model '{model_name}'")
+            # Default to English if no language specified
+            effective_language = language if language else "en"
 
-    return transcribe
+            return whisper_transcribe(
+                audio_path=audio_path,
+                model_name=model_name,
+                device=device,
+                chunk_duration_minutes=chunk_duration_minutes,
+                pause_threshold=pause_threshold,
+                batch_size=batch_size,
+                language=effective_language,
+            )
+
+        elif "nemo" in model_name_lower or "parakeet" in model_name_lower:
+            try:
+                from textplease.backends.nemo import transcribe as nemo_transcribe
+            except ImportError as e:
+                logger.error(f"Failed to import NeMo backend: {e}")
+                raise ImportError(
+                    "NeMo backend dependencies not installed. "
+                    "Install with: pip install nemo_toolkit[asr]"
+                ) from e
+
+            logger.info(f"Using NeMo backend with model: {model_name}")
+
+            return nemo_transcribe(
+                audio_path=audio_path,
+                model_name=model_name,
+                device=device,
+                chunk_duration_minutes=chunk_duration_minutes,
+                pause_threshold=pause_threshold,
+                batch_size=batch_size,
+                max_segment_words=max_segment_words,
+                min_segment_words=min_segment_words,
+                min_segment_chars=min_segment_chars,
+            )
+
+        else:
+            error_msg = (
+                f"Unsupported model name or backend: {model_name}. "
+                f"Supported backends: 'whisper' (e.g., openai/whisper-*), "
+                f"'nemo'/'parakeet' (e.g., nvidia/parakeet-*)"
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
+
+    except (ValueError, ImportError, FileNotFoundError):
+        # Re-raise validation, import, and file errors as-is
+        raise
+    except Exception as e:
+        logger.error(f"Transcription failed for model '{model_name}': {e}", exc_info=True)
+        raise
