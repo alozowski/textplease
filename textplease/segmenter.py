@@ -2,7 +2,6 @@ import gc
 import logging
 from typing import Any
 
-import numpy as np
 import torch
 import psutil  # type: ignore
 from sentence_transformers import SentenceTransformer, util
