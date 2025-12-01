@@ -15,7 +15,6 @@ pip-wheel-metadata/
 .venv/
 env/
 venv/
-uv.lock
 
 # Logs and local results
 *.log
