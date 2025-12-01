@@ -1,22 +1,43 @@
 # Audio source: https://www.kaggle.com/datasets/mathurinache/the-lj-speech-dataset?resource=download
 input_path: "examples/LJSpeech-001.mp3"               # Path to audio or video file
-output_path: "examples/LJSpeech-001_transcript.csv"   # Where to save the transcript
+output_path: "examples/whisper_transcript_en.csv"   # Where to save the transcript
 
 # ASR Model Settings
-model_name: "nvidia/parakeet-tdt-0.6b-v2" # or "openai/whisper-large-v3" (unstable)
-device: "cpu"  # "cpu" as a default; "cuda", or "mps" for Apple (may be unstable)
+model_name: "openai/whisper-large-v3" # or "openai/whisper-large-v3" (unstable)
+device: "mps"  # "cpu" as a default; "cuda", or "mps" for Apple (may be unstable)
+language: ru # for whisper model
 
 # Memory and Processing
 chunk_duration_minutes: 1  # Break long audio into chunks (minutes); lower if facing memory issues
 max_batch_size: 1          # Affects memory usage and speed
 
 # Segmentation Parameters
-similarity_threshold: 0.45            # [0.0–1.0] Lower = more segments merge; higher = stricter segmentation
+similarity_threshold: 0.75           # [0.0–1.0] Lower = more segments merge; higher = stricter segmentation
 pause_threshold: 3                    # Max allowed pause (seconds) between words to merge segments
-max_segment_words: 15                 # Max number of words in a segment before forcing a split
 min_segment_words: 3                  # Minimum words required for a standalone segment
-min_segment_chars: 20                 # Minimum characters required for a standalone segment
+min_segment_chars: 15                 # Minimum characters required for a standalone segment
+max_segment_words: 15                 # Max number of words in a segment before forcing a split
 embedding_model: "all-mpnet-base-v2"  # Model used to compute semantic similarity for merging
+
+# Performance Optimization Settings
+performance:
+  # Similarity computation batch size
+  similarity_batch_size: 32
+  
+  # Process segments in chunks for large files (0 = no chunking)
+  chunk_size: 1000
+  
+  # Memory monitoring
+  memory_warning_threshold_gb: 2.0
+  
+  # Enable embedding caching
+  enable_embedding_cache: true
+  
+  # Cache size limit
+  embedding_cache_size: 500
+  
+  # Force cleanup frequency (every N segments)
+  cleanup_frequency: 500
 
 # Logging and Output
 output_format: "csv"  # Reserved for future use (e.g., "txt", "srt", "json")
