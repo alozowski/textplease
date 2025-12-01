@@ -502,8 +502,6 @@ def launch_gradio():
             outputs=csv_preview,
         )
 
-        # CRITICAL: DownloadButton click handler that returns the file path
-        # This is what actually triggers the download
         download_button.click(
             lambda file_path: file_path,  # Return the file path from state
             inputs=[transcript_state],

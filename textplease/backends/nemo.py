@@ -277,8 +277,7 @@ def _group_words_into_segments(
             logger.warning(f"Invalid timestamps for word '{word}': start={w_start}, end={w_end}")
             continue
 
-        # CRITICAL FIX: Detect silence encoded as abnormally long words
-        # NeMo CTC models sometimes encode silence as extended single-char words
+        # Detect silence encoded as abnormally long words
         word_duration = w_end - w_start
         is_silence_word = len(word) <= 2 and word_duration > 2.0
 
