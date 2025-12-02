@@ -366,7 +366,7 @@ def launch_gradio():
             )
             max_batch_size = gr.Slider(
                 1,
-                8,
+                10,
                 value=1,
                 step=1,
                 label="Max Batch Size",
