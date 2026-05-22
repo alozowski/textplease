@@ -15,14 +15,10 @@ Perfect for researchers, content creators, podcasters, students, journalists, an
 
 ### Installation
 ```bash
-# Clone repo
-git clone https://github.com/yourname/textplease.git
+git clone https://github.com/alozowski/textplease.git
 cd textplease
-
-# Install dependencies using uv (recommended)
-uv venv --python 3.12.1
-source .venv/bin/activate
 uv sync
+source .venv/bin/activate
 ```
 
 ### Usage Options
@@ -58,10 +54,13 @@ textplease uses a modular pipeline designed for accuracy and flexibility:
 2. **ASR Transcription**: converts speech to text using advanced neural models.
    - Supports both English-only (NeMo) and multilingual (Whisper) models
    - Language parameter available for Whisper models (supports 97+ languages)
-   - Removes duplicate segments caused by chunk overlaps
+   - **Silero-VAD** preprocessing: silence regions are removed before transcription, eliminating hallucinations at the source
+   - Whisper uses `model.generate()` with temperature fallback and compression-ratio quality gating — no manual chunking artifacts
+   - Post-transcription hallucination filter removes known Whisper false-positive phrases
+   - Deduplication removes any remaining word overlap at chunk boundaries
 3. **Smart Segmentation**: groups text into logical segments using:
-   - Pause detection (silence-based boundaries)
-   - Semantic analysis (topic coherence via sentence embeddings)
+   - Pause detection (silence-based boundaries, aligned with VAD split points)
+   - Semantic analysis (topic coherence via sentence embeddings, batch-encoded for efficiency)
 4. **Post-Processing**: enforces length constraints and formats the final output.
    - Merges segments that are too short
    - Splits segments that are too long (respects max_segment_words limit)
@@ -71,12 +70,10 @@ flowchart TD
     A[config.yaml] --> B@{ shape: "hex", label: "main.py" }
     B --> C[transcriber.py]
     C --> D@{ shape: "diam", label: "Load ASR Model" }
-    D --> D1[NVIDIA Backend]
-    D --> D2[Transformers Backend]
-    D --> D3[Another model]
+    D --> D1[NeMo Backend]
+    D --> D2[Whisper Backend]
     D1 --> E[Convert audio to text with timestamps]
     D2 --> E
-    D3 --> E
     E --> F[segmenter.py]
     F --> G[clean & deduplicate segments]
     G --> H@{ shape: "cyl", label: "transcript.csv" }
@@ -86,7 +83,6 @@ flowchart TD
     style D color:#000000,fill:#FFDE59
     style D1 fill:#FFB3BA
     style D2 fill:#FFB3BA
-    style D3 fill:#FFB3BA
     style F fill:#f3e5f5
     style H fill:#C1FF72,stroke-width:0.5px,stroke:#000000
 ```
