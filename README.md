@@ -54,7 +54,7 @@ textplease uses a modular pipeline designed for accuracy and flexibility:
 2. **ASR Transcription**: converts speech to text using advanced neural models.
    - Supports both English-only (NeMo) and multilingual (Whisper) models
    - Language parameter available for Whisper models (supports 97+ languages)
-   - **Silero-VAD** preprocessing: silence regions are removed before transcription, eliminating hallucinations at the source
+   - Silero-VAD preprocessing: silence regions are removed before transcription, eliminating hallucinations at the source
    - Whisper uses `model.generate()` with temperature fallback and compression-ratio quality gating — no manual chunking artifacts
    - Post-transcription hallucination filter removes known Whisper false-positive phrases
    - Deduplication removes any remaining word overlap at chunk boundaries
@@ -63,7 +63,7 @@ textplease uses a modular pipeline designed for accuracy and flexibility:
    - Semantic analysis (topic coherence via sentence embeddings, batch-encoded for efficiency)
 4. **Post-Processing**: enforces length constraints and formats the final output.
    - Merges segments that are too short
-   - Splits segments that are too long (respects max_segment_words limit)
+   - Splits segments that are too long (respects `max_segment_words` limit)
    - Filters empty segments and saves to CSV
 ```mermaid
 flowchart TD

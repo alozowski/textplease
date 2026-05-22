@@ -78,7 +78,6 @@ def transcribe(
         duration_sec = len(audio) / 1000.0
         logger.info(f"Audio duration: {duration_sec:.1f}s")
 
-        # Process as single file if short enough, otherwise chunk
         if duration_sec <= chunk_duration_minutes * 60:
             return _transcribe_whole_audio(
                 model, audio_path, pause_threshold, batch_size, max_segment_words, min_segment_words, min_segment_chars
@@ -170,7 +169,6 @@ def _transcribe_audio_in_chunks(
                 segments.extend(chunk_segments)
             except Exception as e:
                 logger.error(f"Chunk {i + 1} ({chunk_path}) failed: {e}")
-                # Continue processing remaining chunks even if one fails
             finally:
                 _clear_torch_memory()
 
@@ -196,7 +194,6 @@ def _process_output(
     try:
         result = output[0]
 
-        # Try to use word-level timestamps if available
         if hasattr(result, "timestamp") and result.timestamp and result.timestamp.get("word"):
             words = result.timestamp["word"]
             if not words:
@@ -214,10 +211,8 @@ def _process_output(
                     min_segment_chars,
                 )
                 logger.info(f"Created {len(raw_segments)} segments from word-level timestamps")
-                # Filter out empty segments
                 segments = [s for s in raw_segments if s["text"].strip()]
 
-        # Fallback to text-only output
         elif hasattr(result, "text") and result.text:
             logger.warning("No word-level timestamps available, using text-only fallback")
             text = result.text.strip()
@@ -228,7 +223,6 @@ def _process_output(
 
     except Exception as e:
         logger.error(f"Error processing ASR output: {e}", exc_info=True)
-        # Last-resort fallback: try to extract any text
         try:
             text = getattr(output[0], "text", str(output[0])).strip()
             if text:
@@ -253,7 +247,6 @@ def _group_words_into_segments(
     start = end = None
 
     for i, word_info in enumerate(words):
-        # Validate word_info structure
         if not isinstance(word_info, dict):
             logger.warning(f"Invalid word_info at index {i}: {word_info}")
             continue
@@ -269,7 +262,6 @@ def _group_words_into_segments(
         w_start = word_info["start"]
         w_end = word_info["end"]
 
-        # Validate timestamps
         if w_start is None or w_end is None or w_start < 0 or w_end < 0 or w_end < w_start:
             logger.warning(f"Invalid timestamps for word '{word}': start={w_start}, end={w_end}")
             continue
@@ -289,17 +281,13 @@ def _group_words_into_segments(
             current_words = [word]
             continue
 
-        # At this point, end should not be None since start is not None
         assert end is not None, "end should be set when start is not None"
         pause = float(w_start) - end
         current_text = " ".join(current_words)
         current_word_count = len(current_words)
         current_char_count = len(current_text)
 
-        # Check if segment meets minimum requirements
         is_too_short = current_word_count < min_segment_words or current_char_count < min_segment_chars
-
-        # Split on: long pause, silence word, sentence boundary, or max words reached
         should_split = (
             (pause > pause_threshold and not is_too_short)
             or (is_silence_word and not is_too_short)
@@ -321,7 +309,6 @@ def _group_words_into_segments(
             current_words.append(word)
             end = float(w_end)
 
-    # Add final segment
     if current_words and start is not None and end is not None:
         segments.append(
             {

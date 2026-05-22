@@ -164,11 +164,9 @@ def _filter_hallucinations(segments: list[dict]) -> list[dict]:
     for seg in segments:
         text = seg["text"]
 
-        # Hallucination loop: strip the repetition, keep any trailing real content.
-        # E.g. "Thank you. Thank you. Thank you. Well," → "Well,"
+        # Collapse repetition loops but keep any trailing real content.
         text = _REPEATED_PHRASE.sub(lambda m: m.group(1), text).strip()
 
-        # Known hallucination phrases — strip the phrase from the text
         for pattern in _HALLUCINATION_PATTERNS:
             text = pattern.sub("", text).strip()
 

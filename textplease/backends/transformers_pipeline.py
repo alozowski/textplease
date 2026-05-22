@@ -1,28 +1,4 @@
-"""Whisper ASR backend: Silero-VAD preprocessing + model.generate() per speech segment.
-
-Pipeline (gold standard per HuggingFace docs + ICASSP 2025 research):
-
-  1. Silero-VAD splits the audio into speech-only segments, discarding silence.
-     Whisper never sees silence → no hallucinations from silence regions.
-     (ICASSP 2025: VAD alone reduces WER from baseline to 8.0%;
-      VAD + delooping + BoH filtering achieves 6.5%)
-
-  2. Each speech segment is transcribed with model.generate() (NOT the pipeline).
-     - truncation=False  → Whisper's native sequential windowed decoder
-     - temperature fallback  → retry at 0.2 / 0.4 … 1.0 when quality thresholds fail
-     - compression_ratio_threshold=1.35  → high-ratio text = likely repetition loop
-     - logprob_threshold=-1.0  → low log-prob = uncertain / hallucinated tokens
-     - condition_on_previous_text=False  → segments are independent; hallucinations
-       in one window cannot propagate into the next
-     (no hallucination_silence_threshold needed: VAD already removed the silence)
-
-  3. Timestamps from each segment are offset back to the global audio position.
-
-Sources:
-  - https://huggingface.co/docs/transformers/model_doc/whisper
-  - https://github.com/snakers4/silero-vad
-  - https://arxiv.org/pdf/2501.11378  (ICASSP 2025 hallucination study)
-"""
+"""Whisper ASR backend: Silero-VAD preprocessing + model.generate() per speech segment."""
 
 import gc
 import re
@@ -48,11 +24,6 @@ warnings.filterwarnings("ignore", message=".*Whisper did not predict an ending t
 warnings.filterwarnings("ignore", message=".*attention mask is not set.*")
 
 
-# ---------------------------------------------------------------------------
-# Model / audio loading
-# ---------------------------------------------------------------------------
-
-
 def _load_model_and_processor(model_name: str, device: str) -> tuple[Any, Any]:
     """Load Whisper model and processor."""
     logger.info(f"Loading Transformers model '{model_name}' on device: {device}")
@@ -75,11 +46,6 @@ def _load_audio(audio_path: str) -> np.ndarray:
     if sample_rate != SAMPLE_RATE:
         waveform = torchaudio.transforms.Resample(sample_rate, SAMPLE_RATE)(waveform)
     return waveform.squeeze(0).numpy()
-
-
-# ---------------------------------------------------------------------------
-# Step 1 — Voice Activity Detection
-# ---------------------------------------------------------------------------
 
 
 def _get_speech_segments(
@@ -122,11 +88,6 @@ def _get_speech_segments(
         f"{speech_s:.1f}s / {total_s:.1f}s total ({100 * speech_s / max(total_s, 1):.0f}% speech)"
     )
     return segments  # type: ignore[return-value]
-
-
-# ---------------------------------------------------------------------------
-# Step 2 — Transcription
-# ---------------------------------------------------------------------------
 
 
 def _transcribe_speech_segment(
@@ -215,7 +176,6 @@ def _transcribe_long_form(
         )
         offsets = _transcribe_speech_segment(model, processor, chunk, device, language)
 
-        # Shift each timestamp back to its position in the original audio.
         for offset in offsets:
             ts = offset.get("timestamp", (0.0, 0.0))
             if len(ts) == 2 and ts[0] is not None and ts[1] is not None:
@@ -223,11 +183,6 @@ def _transcribe_long_form(
         all_offsets.extend(offsets)
 
     return all_offsets
-
-
-# ---------------------------------------------------------------------------
-# Step 3 — Convert offsets to segment dicts
-# ---------------------------------------------------------------------------
 
 
 def _offsets_to_segments(offsets: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -240,11 +195,6 @@ def _offsets_to_segments(offsets: list[dict[str, Any]]) -> list[dict[str, str]]:
             continue
         segments.extend(_split_chunk_by_sentences(text, float(ts[0]), float(ts[1])))
     return segments
-
-
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
 
 
 def _transcribe_with_fallbacks(
@@ -303,11 +253,6 @@ def transcribe(
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
-
-
-# ---------------------------------------------------------------------------
-# Fallback (no VAD / no timestamps)
-# ---------------------------------------------------------------------------
 
 
 def _fallback_sentence_segmentation(
@@ -377,11 +322,6 @@ def _fallback_sentence_segmentation(
     except Exception as e:
         logger.error(f"Fallback segmentation failed: {e}")
         return []
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
 
 
 def _split_chunk_by_sentences(text: str, start_time: float, end_time: float) -> list[dict[str, str]]:
