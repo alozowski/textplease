@@ -71,6 +71,7 @@ def parse_time_str(time_str: str) -> float:
     except (ValueError, IndexError) as e:
         raise ValueError(f"Failed to parse time string '{time_str}': {e}")
 
+
 def format_time_precise(seconds: float | None) -> str:
     """Convert float seconds to HH:MM:SS.mmm format with milliseconds.
 

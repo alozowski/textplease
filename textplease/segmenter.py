@@ -23,7 +23,7 @@ class MemoryMonitor:
 
     def get_memory_usage(self) -> float:
         """Return current RSS memory usage in GB."""
-        return self.process.memory_info().rss / (1024 ** 3)
+        return self.process.memory_info().rss / (1024**3)
 
     def check_memory(self, context: str = "") -> bool:
         """Warn and return True if memory exceeds threshold."""
@@ -145,11 +145,13 @@ def split_long_segment(segment: dict, max_words_per_chunk: int) -> list[dict]:
         chunk = words[i : i + max_words_per_chunk]
         chunk_start = start_sec + i * secs_per_word
         chunk_end = chunk_start + len(chunk) * secs_per_word
-        result.append({
-            "start_time": format_time_precise(chunk_start),
-            "end_time": format_time_precise(chunk_end),
-            "text": " ".join(chunk),
-        })
+        result.append(
+            {
+                "start_time": format_time_precise(chunk_start),
+                "end_time": format_time_precise(chunk_end),
+                "text": " ".join(chunk),
+            }
+        )
     return result
 
 
@@ -184,11 +186,16 @@ def _merge_segments(
             (
                 is_segment_too_short(current["text"], min_words, min_chars)
                 or is_segment_too_short(nxt_text, min_words, min_chars)
-            ) and pause <= pause_threshold
+            )
+            and pause <= pause_threshold
             or (
                 _should_merge(
-                    current["text"], nxt_text, pause,
-                    similarity_computer, similarity_threshold, pause_threshold,
+                    current["text"],
+                    nxt_text,
+                    pause,
+                    similarity_computer,
+                    similarity_threshold,
+                    pause_threshold,
                 )
                 and cur_words < max_words
             )
@@ -219,8 +226,12 @@ def _merge_chunk_boundaries(
     """Return True if the boundary segments from adjacent chunks should merge."""
     pause = parse_time_str(curr_first["start_time"]) - parse_time_str(prev_last["end_time"])
     if not _should_merge(
-        prev_last["text"], curr_first["text"], pause,
-        similarity_computer, similarity_threshold, pause_threshold,
+        prev_last["text"],
+        curr_first["text"],
+        pause,
+        similarity_computer,
+        similarity_threshold,
+        pause_threshold,
     ):
         return False
     return len(prev_last["text"].split()) + len(curr_first["text"].split()) <= max_words
@@ -247,16 +258,24 @@ def _process_segments_in_chunks(
         logger.info(f"Processing chunk {chunk_num}: segments {chunk_start}–{chunk_end}")
 
         merged = _merge_segments(
-            chunk, similarity_computer,
-            similarity_threshold, pause_threshold,
-            max_words, min_words, min_chars,
+            chunk,
+            similarity_computer,
+            similarity_threshold,
+            pause_threshold,
+            max_words,
+            min_words,
+            min_chars,
             memory_monitor=memory_monitor,
         )
 
         if all_merged and merged:
             if _merge_chunk_boundaries(
-                all_merged[-1], merged[0],
-                similarity_computer, similarity_threshold, pause_threshold, max_words,
+                all_merged[-1],
+                merged[0],
+                similarity_computer,
+                similarity_threshold,
+                pause_threshold,
+                max_words,
             ):
                 all_merged[-1]["text"] += " " + merged[0]["text"]
                 all_merged[-1]["end_time"] = merged[0]["end_time"]
@@ -332,9 +351,7 @@ def post_process_segments(
         char_count = len(text)
 
         if word_count < min_words or char_count < min_chars:
-            _, extra = _handle_short_segment(
-                current, processed, segments, i, max_words, min_words, min_chars
-            )
+            _, extra = _handle_short_segment(current, processed, segments, i, max_words, min_words, min_chars)
             i += extra
         elif word_count > max_words:
             processed.extend(split_long_segment(current, max_words))
@@ -384,10 +401,7 @@ def segment_transcript(
         return []
 
     memory_monitor = MemoryMonitor()
-    logger.info(
-        f"Starting segmentation: {len(segments)} segments. "
-        f"Memory: {memory_monitor.get_memory_usage():.2f}GB"
-    )
+    logger.info(f"Starting segmentation: {len(segments)} segments. Memory: {memory_monitor.get_memory_usage():.2f}GB")
 
     if model is None:
         device = detect_device(preferred_device)
@@ -405,16 +419,25 @@ def segment_transcript(
     if len(segments) > effective_chunk_size:
         logger.info(f"Processing in chunks of {effective_chunk_size}")
         result = _process_segments_in_chunks(
-            segments, similarity_computer,
-            similarity_threshold, pause_threshold,
-            max_words, min_words, min_chars,
-            effective_chunk_size, memory_monitor,
+            segments,
+            similarity_computer,
+            similarity_threshold,
+            pause_threshold,
+            max_words,
+            min_words,
+            min_chars,
+            effective_chunk_size,
+            memory_monitor,
         )
     else:
         result = _merge_segments(
-            segments, similarity_computer,
-            similarity_threshold, pause_threshold,
-            max_words, min_words, min_chars,
+            segments,
+            similarity_computer,
+            similarity_threshold,
+            pause_threshold,
+            max_words,
+            min_words,
+            min_chars,
             memory_monitor=memory_monitor,
         )
 

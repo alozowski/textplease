@@ -41,6 +41,7 @@ def load_config(path: str) -> dict:
 def apply_environment_config(env_config: dict) -> None:
     """Set environment variables from config if not already set."""
     import os
+
     if not isinstance(env_config, dict):
         logger.warning(f"Invalid environment config (expected dict): {type(env_config)}")
         return

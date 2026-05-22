@@ -52,6 +52,7 @@ warnings.filterwarnings("ignore", message=".*attention mask is not set.*")
 # Model / audio loading
 # ---------------------------------------------------------------------------
 
+
 def _load_model_and_processor(model_name: str, device: str) -> tuple[Any, Any]:
     """Load Whisper model and processor."""
     logger.info(f"Loading Transformers model '{model_name}' on device: {device}")
@@ -79,6 +80,7 @@ def _load_audio(audio_path: str) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # Step 1 — Voice Activity Detection
 # ---------------------------------------------------------------------------
+
 
 def _get_speech_segments(
     audio_array: np.ndarray,
@@ -126,6 +128,7 @@ def _get_speech_segments(
 # Step 2 — Transcription
 # ---------------------------------------------------------------------------
 
+
 def _transcribe_speech_segment(
     model: Any,
     processor: Any,
@@ -167,9 +170,7 @@ def _transcribe_speech_segment(
     with torch.no_grad():
         generated_ids = model.generate(**generate_kwargs)
 
-    time_precision = (
-        processor.feature_extractor.chunk_length / model.config.max_source_positions
-    )
+    time_precision = processor.feature_extractor.chunk_length / model.config.max_source_positions
     decoded = processor.tokenizer.decode(
         generated_ids[0],
         output_offsets=True,
@@ -210,8 +211,7 @@ def _transcribe_long_form(
             continue
 
         logger.info(
-            f"Transcribing speech segment {i + 1}/{n}: "
-            f"[{start_s:.2f}s → {end_s:.2f}s] ({end_s - start_s:.1f}s)"
+            f"Transcribing speech segment {i + 1}/{n}: [{start_s:.2f}s → {end_s:.2f}s] ({end_s - start_s:.1f}s)"
         )
         offsets = _transcribe_speech_segment(model, processor, chunk, device, language)
 
@@ -229,6 +229,7 @@ def _transcribe_long_form(
 # Step 3 — Convert offsets to segment dicts
 # ---------------------------------------------------------------------------
 
+
 def _offsets_to_segments(offsets: list[dict[str, Any]]) -> list[dict[str, str]]:
     """Convert decoded timestamp offsets to the standard {start_time, end_time, text} format."""
     segments: list[dict[str, str]] = []
@@ -244,6 +245,7 @@ def _offsets_to_segments(offsets: list[dict[str, Any]]) -> list[dict[str, str]]:
 # ---------------------------------------------------------------------------
 # Public entry point
 # ---------------------------------------------------------------------------
+
 
 def _transcribe_with_fallbacks(
     model: Any,
@@ -289,9 +291,7 @@ def transcribe(
     try:
         model, processor = _load_model_and_processor(model_name, device)
         audio_array = _load_audio(audio_path)
-        return _transcribe_with_fallbacks(
-            model, processor, audio_array, device, language, pause_threshold
-        )
+        return _transcribe_with_fallbacks(model, processor, audio_array, device, language, pause_threshold)
     except Exception as e:
         logger.error(f"Transcription failed for model '{model_name}': {e}")
         raise
@@ -308,6 +308,7 @@ def transcribe(
 # ---------------------------------------------------------------------------
 # Fallback (no VAD / no timestamps)
 # ---------------------------------------------------------------------------
+
 
 def _fallback_sentence_segmentation(
     model: Any,
@@ -363,11 +364,13 @@ def _fallback_sentence_segmentation(
         current_time = 0.0
         for sentence in sentences:
             end = min(current_time + (len(sentence) / total_chars) * duration_s, duration_s)
-            segments.append({
-                "start_time": format_time(current_time),
-                "end_time": format_time(end),
-                "text": sentence,
-            })
+            segments.append(
+                {
+                    "start_time": format_time(current_time),
+                    "end_time": format_time(end),
+                    "text": sentence,
+                }
+            )
             current_time = end
         return segments
 
@@ -379,6 +382,7 @@ def _fallback_sentence_segmentation(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _split_chunk_by_sentences(text: str, start_time: float, end_time: float) -> list[dict[str, str]]:
     """Split a segment's text at sentence boundaries, distributing duration proportionally."""
@@ -395,10 +399,12 @@ def _split_chunk_by_sentences(text: str, start_time: float, end_time: float) -> 
     current_time = start_time
     for sentence in sentences:
         end = min(current_time + (len(sentence) / total_chars) * duration, end_time)
-        segments.append({
-            "start_time": format_time(current_time),
-            "end_time": format_time(end),
-            "text": sentence,
-        })
+        segments.append(
+            {
+                "start_time": format_time(current_time),
+                "end_time": format_time(end),
+                "text": sentence,
+            }
+        )
         current_time = end
     return segments

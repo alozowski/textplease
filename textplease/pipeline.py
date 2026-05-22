@@ -38,7 +38,7 @@ _HALLUCINATION_PATTERNS: list[re.Pattern] = [
 ]
 
 # Phrase repeated ≥3 times consecutively within one segment = hallucination loop.
-_REPEATED_PHRASE = re.compile(r'(.{4,40}?)(\s+\1){2,}', re.IGNORECASE)
+_REPEATED_PHRASE = re.compile(r"(.{4,40}?)(\s+\1){2,}", re.IGNORECASE)
 
 
 def save_to_csv(segments: list, output_path: str) -> str:
@@ -284,8 +284,7 @@ def run_transcription_pipeline(config: dict) -> None:
         f"Chunk: {params['chunk_duration']}min | Pause: {params['pause_threshold']}s"
     )
     logger.info(
-        f"Embedding: {params['embedding_model_name']} | "
-        f"Similarity threshold: {params['similarity_threshold']}"
+        f"Embedding: {params['embedding_model_name']} | Similarity threshold: {params['similarity_threshold']}"
     )
 
     t0 = time.time()

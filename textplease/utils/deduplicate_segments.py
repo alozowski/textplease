@@ -68,7 +68,9 @@ def deduplicate_segments(segments: list[dict[str, str]], overlap_words: int = 5)
                 current_copy["text"] = " ".join(curr_head[max_overlap:]).strip()
 
                 if not current_copy["text"]:
-                    logger.warning(f"Segment became empty after deduplication: start={current.get('start_time', 'unknown')}")
+                    logger.warning(
+                        f"Segment became empty after deduplication: start={current.get('start_time', 'unknown')}"
+                    )
 
             deduplicated.append(current_copy)
 

@@ -81,12 +81,17 @@ def transcribe(
         # Process as single file if short enough, otherwise chunk
         if duration_sec <= chunk_duration_minutes * 60:
             return _transcribe_whole_audio(
-                model, audio_path, pause_threshold, batch_size,
-                max_segment_words, min_segment_words, min_segment_chars
+                model, audio_path, pause_threshold, batch_size, max_segment_words, min_segment_words, min_segment_chars
             )
         return _transcribe_audio_in_chunks(
-            model, audio, chunk_duration_minutes, pause_threshold, batch_size,
-            max_segment_words, min_segment_words, min_segment_chars
+            model,
+            audio,
+            chunk_duration_minutes,
+            pause_threshold,
+            batch_size,
+            max_segment_words,
+            min_segment_words,
+            min_segment_chars,
         )
 
     except Exception as e:
@@ -197,7 +202,9 @@ def _process_output(
             if not words:
                 logger.warning("Empty word list in timestamp data")
             else:
-                logger.info(f"Processing {len(words)} words with pause_threshold={pause_threshold}, max_words={max_segment_words}")
+                logger.info(
+                    f"Processing {len(words)} words with pause_threshold={pause_threshold}, max_words={max_segment_words}"
+                )
                 raw_segments = _group_words_into_segments(
                     words,
                     offset,
@@ -290,25 +297,24 @@ def _group_words_into_segments(
         current_char_count = len(current_text)
 
         # Check if segment meets minimum requirements
-        is_too_short = (
-            current_word_count < min_segment_words or
-            current_char_count < min_segment_chars
-        )
+        is_too_short = current_word_count < min_segment_words or current_char_count < min_segment_chars
 
         # Split on: long pause, silence word, sentence boundary, or max words reached
         should_split = (
-            (pause > pause_threshold and not is_too_short) or
-            (is_silence_word and not is_too_short) or
-            _ends_sentence(words[i - 1]["word"]) or
-            current_word_count >= max_segment_words
+            (pause > pause_threshold and not is_too_short)
+            or (is_silence_word and not is_too_short)
+            or _ends_sentence(words[i - 1]["word"])
+            or current_word_count >= max_segment_words
         )
 
         if should_split:
-            segments.append({
-                "start_time": format_time(start + offset),
-                "end_time": format_time(end + offset),
-                "text": " ".join(current_words),
-            })
+            segments.append(
+                {
+                    "start_time": format_time(start + offset),
+                    "end_time": format_time(end + offset),
+                    "text": " ".join(current_words),
+                }
+            )
             start, end = float(w_start), float(w_end)
             current_words = [word]
         else:
@@ -317,11 +323,13 @@ def _group_words_into_segments(
 
     # Add final segment
     if current_words and start is not None and end is not None:
-        segments.append({
-            "start_time": format_time(start + offset),
-            "end_time": format_time(float(end) + offset),
-            "text": " ".join(current_words).strip(),
-        })
+        segments.append(
+            {
+                "start_time": format_time(start + offset),
+                "end_time": format_time(float(end) + offset),
+                "text": " ".join(current_words).strip(),
+            }
+        )
 
     return segments
 

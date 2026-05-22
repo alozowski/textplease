@@ -99,10 +99,7 @@ def _convert_to_mono_wav(input_path: str, output_path: str) -> str:
 
         # Run ffmpeg conversion
         ffmpeg.input(input_path).output(
-            output_path,
-            acodec="pcm_s16le",
-            ac=TARGET_CHANNELS,
-            ar=str(TARGET_SAMPLE_RATE)
+            output_path, acodec="pcm_s16le", ac=TARGET_CHANNELS, ar=str(TARGET_SAMPLE_RATE)
         ).overwrite_output().run(quiet=True, capture_stderr=True)
 
         # Verify output file was created

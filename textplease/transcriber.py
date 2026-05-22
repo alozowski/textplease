@@ -91,8 +91,7 @@ def transcribe_audio(
             except ImportError as e:
                 logger.error(f"Failed to import NeMo backend: {e}")
                 raise ImportError(
-                    "NeMo backend dependencies not installed. "
-                    "Install with: pip install nemo_toolkit[asr]"
+                    "NeMo backend dependencies not installed. Install with: pip install nemo_toolkit[asr]"
                 ) from e
 
             logger.info(f"Using NeMo backend with model: {model_name}")
