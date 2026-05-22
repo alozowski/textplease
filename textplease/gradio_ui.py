@@ -96,9 +96,7 @@ def _execute_and_report(
         run_transcription_pipeline(config)
 
         if not output_path.exists():
-            raise RuntimeError(
-                f"Transcription completed but output file not found: {output_path}"
-            )
+            raise RuntimeError(f"Transcription completed but output file not found: {output_path}")
 
         return (
             f"✅ Transcription complete!\n"
@@ -134,10 +132,10 @@ def start_transcription(
     if audio_file is None:
         return (
             "❌ Please upload an audio file.",
-            gr.update(visible=False),                    # download_button
-            gr.update(interactive=False, value=False),   # show_transcript
-            gr.update(visible=False, value=None),        # csv_preview
-            None,                                        # transcript_state
+            gr.update(visible=False),  # download_button
+            gr.update(interactive=False, value=False),  # show_transcript
+            gr.update(visible=False, value=None),  # csv_preview
+            None,  # transcript_state
         )
 
     try:
@@ -180,15 +178,15 @@ def start_transcription(
 
             return (
                 status_msg,
-                gr.update(value=output_file, visible=True), # Show download button
-                gr.update(interactive=True, value=True), # Enable AND check the checkbox
-                preview_data, # Show the preview immediately
-                output_file, # state with transcript path
+                gr.update(value=output_file, visible=True),  # Show download button
+                gr.update(interactive=True, value=True),  # Enable AND check the checkbox
+                preview_data,  # Show the preview immediately
+                output_file,  # state with transcript path
             )
         else:
             return (
                 status_msg,
-                gr.update(visible=False), # Hide download button
+                gr.update(visible=False),  # Hide download button
                 gr.update(interactive=False, value=False),
                 gr.update(visible=False, value=None),
                 None,
@@ -223,11 +221,7 @@ def show_audio_info(file):
         duration = round(float(info.get("duration", 0)), 2)
         sample_rate = info.get("sample_rate", "Unknown")
         channels = info.get("channels", "Unknown")
-        return (
-            f"🕒 Duration: {duration}s\n"
-            f"📊 Sample rate: {sample_rate} Hz\n"
-            f"🔊 Channels: {channels}"
-        )
+        return f"🕒 Duration: {duration}s\n📊 Sample rate: {sample_rate} Hz\n🔊 Channels: {channels}"
     except Exception as e:
         logger.error(f"Failed to get audio info: {e}")
         return f"⚠️ Could not read audio info: {e}"
@@ -458,13 +452,13 @@ def launch_gradio():
 
         def clear_all():
             return (
-                None, # audio_input
-                None, # audio_preview
-                "Waiting...", # status_text
-                gr.update(visible=False), # download_button
-                gr.update(value=False, interactive=False), # show_transcript
-                gr.update(visible=False, value=None), # csv_preview
-                None, # transcript_state
+                None,  # audio_input
+                None,  # audio_preview
+                "Waiting...",  # status_text
+                gr.update(visible=False),  # download_button
+                gr.update(value=False, interactive=False),  # show_transcript
+                gr.update(visible=False, value=None),  # csv_preview
+                None,  # transcript_state
             )
 
         clear_btn.click(
@@ -488,7 +482,7 @@ def launch_gradio():
         )
 
         download_button.click(
-            lambda file_path: file_path, # Return the file path from state
+            lambda file_path: file_path,  # Return the file path from state
             inputs=[transcript_state],
             outputs=[download_button],
         )
