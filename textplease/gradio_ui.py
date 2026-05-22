@@ -487,7 +487,7 @@ def launch_gradio():
             outputs=[download_button],
         )
 
-    demo.launch(share=True)
+    demo.launch()
 
 
 if __name__ == "__main__":
