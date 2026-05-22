@@ -2,7 +2,7 @@ import os
 import logging
 from pathlib import Path
 
-import ffmpeg  # type: ignore
+import ffmpeg
 
 
 logger = logging.getLogger(__name__)

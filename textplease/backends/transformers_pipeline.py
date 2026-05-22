@@ -32,7 +32,7 @@ from typing import Any
 
 import numpy as np
 import torch
-import torchaudio  # type: ignore
+import torchaudio
 from transformers import AutoProcessor, AutoModelForSpeechSeq2Seq
 
 from textplease.utils.time_utils import format_time_precise as format_time
@@ -99,7 +99,7 @@ def _get_speech_segments(
         padded by ``_SPEECH_PAD_S`` on each side.
 
     """
-    from silero_vad import load_silero_vad, get_speech_timestamps  # type: ignore
+    from silero_vad import load_silero_vad, get_speech_timestamps
 
     vad_model = load_silero_vad()
     audio_tensor = torch.from_numpy(audio_array)

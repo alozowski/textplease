@@ -7,8 +7,8 @@ from typing import Any
 from pathlib import Path
 
 import torch
-import nemo.collections.asr as nemo_asr  # type: ignore
-from pydub import AudioSegment  # type: ignore
+import nemo.collections.asr as nemo_asr
+from pydub import AudioSegment
 
 from textplease.utils.time_utils import format_time_precise as format_time
 

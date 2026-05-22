@@ -3,7 +3,7 @@ import logging
 from typing import Any
 
 import torch
-import psutil  # type: ignore
+import psutil
 from sentence_transformers import SentenceTransformer, util
 
 from textplease.utils.time_utils import parse_time_str, format_time_precise

@@ -5,7 +5,7 @@ from pathlib import Path
 import yaml
 import gradio as gr
 import pandas as pd
-from pydub.utils import mediainfo  # type: ignore
+from pydub.utils import mediainfo
 
 from textplease.pipeline import DEFAULT_EMBEDDING_MODEL, run_transcription_pipeline
 from textplease.utils.device_utils import detect_device

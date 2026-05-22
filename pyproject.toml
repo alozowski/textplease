@@ -48,6 +48,10 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 include = ["textplease*"]
 
+[tool.ty.rules]
+# ML deps aren't installed in CI, ty still checks first-party code.
+unresolved-import = "ignore"
+
 [tool.ruff]
 line-length = 119
 exclude = [".venv", "dist", "build", "**/__pycache__", "*.egg-info", ".mypy_cache", ".pytest_cache"]
