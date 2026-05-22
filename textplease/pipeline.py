@@ -42,20 +42,7 @@ _REPEATED_PHRASE = re.compile(r"(.{4,40}?)(\s+\1){2,}", re.IGNORECASE)
 
 
 def save_to_csv(segments: list, output_path: str) -> str:
-    """Save segments to a tab-separated CSV file.
-
-    Args:
-        segments: List of segment dictionaries to save.
-        output_path: Path where the CSV file should be saved.
-
-    Returns:
-        Path to the saved CSV file.
-
-    Raises:
-        ValueError: If segments is empty or output_path is invalid.
-        IOError: If file writing fails.
-
-    """
+    """Save segments to a tab-separated CSV file."""
     if not segments:
         raise ValueError("Cannot save empty segments list")
 
@@ -99,13 +86,7 @@ def estimate_processing_time(num_segments: int) -> str:
 
 
 def _validate_pipeline_config(config: dict) -> None:
-    """Validate configuration for the transcription pipeline.
-
-    Raises:
-        ValueError: If required config keys are missing or invalid.
-        FileNotFoundError: If input file does not exist.
-
-    """
+    """Validate configuration for the transcription pipeline."""
     if not isinstance(config, dict):
         raise ValueError(f"Config must be a dictionary, got {type(config)}")
 
@@ -152,14 +133,7 @@ def _load_embedding_model(model_name: str, device: str) -> SentenceTransformer:
 
 
 def _filter_hallucinations(segments: list[dict]) -> list[dict]:
-    """Remove or clean segments that contain Whisper hallucination patterns.
-
-    Two cases handled:
-    1. Known hallucination phrase found in segment text → strip it out.
-       If stripping leaves the segment empty, drop the segment entirely.
-    2. A phrase is repeated ≥3 consecutive times within one segment
-       (hallucination loop) → drop the segment.
-    """
+    """Strip known Whisper hallucination phrases and drop repetition-loop segments."""
     cleaned = []
     for seg in segments:
         text = seg["text"]
@@ -262,16 +236,7 @@ def _save_and_cleanup(final_segments: list, params: dict, audio_path: str) -> No
 
 
 def run_transcription_pipeline(config: dict) -> None:
-    """Run the complete transcription pipeline.
-
-    Args:
-        config: Configuration dictionary with required keys.
-
-    Raises:
-        ValueError: If required config keys are missing.
-        Exception: If any pipeline stage fails.
-
-    """
+    """Run the complete transcription pipeline."""
     start = time.time()
     _validate_pipeline_config(config)
     params = _extract_config_params(config)

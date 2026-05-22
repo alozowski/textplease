@@ -31,7 +31,7 @@ def _load_model_and_processor(model_name: str, device: str) -> tuple[Any, Any]:
     torch_dtype = torch.float16 if device not in ("cpu", "mps") else torch.float32
     model = AutoModelForSpeechSeq2Seq.from_pretrained(
         model_name,
-        torch_dtype=torch_dtype,
+        dtype=torch_dtype,
         low_cpu_mem_usage=True,
         use_safetensors=True,
     ).to(device)
@@ -52,19 +52,7 @@ def _get_speech_segments(
     audio_array: np.ndarray,
     pause_threshold: float,
 ) -> list[dict[str, float]]:
-    """Run Silero-VAD and return speech segment boundaries in seconds.
-
-    Args:
-        audio_array: Mono 16 kHz audio.
-        pause_threshold: Minimum silence duration (seconds) that separates two
-            distinct speech segments. Aligns with the pipeline's pause_threshold
-            so segment boundaries match what the segmenter expects.
-
-    Returns:
-        List of dicts with ``start`` and ``end`` keys in seconds, already
-        padded by ``_SPEECH_PAD_S`` on each side.
-
-    """
+    """Run Silero-VAD and return speech segment boundaries in seconds."""
     from silero_vad import load_silero_vad, get_speech_timestamps
 
     vad_model = load_silero_vad()
@@ -97,11 +85,7 @@ def _transcribe_speech_segment(
     device: str,
     language: str,
 ) -> list[dict[str, Any]]:
-    """Transcribe one VAD-extracted speech chunk with model.generate().
-
-    hallucination_silence_threshold is intentionally omitted: VAD already
-    removed silence, so there are no silent windows to skip.
-    """
+    """Transcribe one speech chunk; returns decoded timestamp offsets."""
     torch_dtype = torch.float16 if device not in ("cpu", "mps") else torch.float32
 
     inputs = processor(
@@ -123,7 +107,6 @@ def _transcribe_speech_segment(
         "temperature": (0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
         "compression_ratio_threshold": 1.35,
         "logprob_threshold": -1.0,
-        "condition_on_previous_text": False,
     }
     if attention_mask is not None:
         generate_kwargs["attention_mask"] = attention_mask.to(device)
@@ -262,66 +245,32 @@ def _fallback_sentence_segmentation(
     device: str,
     language: str = "en",
 ) -> list[dict[str, str]]:
-    """Last resort: decode without timestamps and split by sentence boundaries."""
-    logger.info("Using fallback sentence-based segmentation (no timestamps)")
-    torch_dtype = torch.float16 if device not in ("cpu", "mps") else torch.float32
+    """Last resort when VAD finds no speech: fixed 28s chunks with timestamp offsets."""
+    logger.info("Using fallback chunked segmentation (no VAD)")
+    chunk_samples = int(28 * SAMPLE_RATE)
+    n_chunks = max(1, (len(audio_array) + chunk_samples - 1) // chunk_samples)
 
-    try:
-        inputs = processor(
-            audio_array,
-            return_tensors="pt",
-            truncation=False,
-            padding="longest",
-            return_attention_mask=True,
-            sampling_rate=SAMPLE_RATE,
-        )
-        input_features = inputs.input_features.to(device=device, dtype=torch_dtype)
-        attention_mask = inputs.get("attention_mask")
+    all_offsets: list[dict[str, Any]] = []
+    for i, start_sample in enumerate(range(0, len(audio_array), chunk_samples)):
+        start_s = start_sample / SAMPLE_RATE
+        end_sample = min(start_sample + chunk_samples, len(audio_array))
+        chunk = audio_array[start_sample:end_sample]
 
-        generate_kwargs: dict[str, Any] = {
-            "input_features": input_features,
-            "language": language,
-            "task": "transcribe",
-            "return_timestamps": False,
-            "temperature": (0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
-            "compression_ratio_threshold": 1.35,
-            "logprob_threshold": -1.0,
-            "condition_on_previous_text": False,
-        }
-        if attention_mask is not None:
-            generate_kwargs["attention_mask"] = attention_mask.to(device)
+        if len(chunk) < SAMPLE_RATE * 0.5:
+            continue
 
-        with torch.no_grad():
-            generated_ids = model.generate(**generate_kwargs)
+        logger.info(f"Fallback chunk {i + 1}/{n_chunks}: [{start_s:.1f}s → {end_sample / SAMPLE_RATE:.1f}s]")
+        offsets = _transcribe_speech_segment(model, processor, chunk, device, language)
+        for offset in offsets:
+            ts = offset.get("timestamp", (0.0, 0.0))
+            if len(ts) == 2 and ts[0] is not None and ts[1] is not None:
+                offset["timestamp"] = (ts[0] + start_s, ts[1] + start_s)
+        all_offsets.extend(offsets)
 
-        text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0].strip()
-        if not text:
-            logger.warning("Fallback segmentation returned no text")
-            return []
-
-        duration_s = len(audio_array) / SAMPLE_RATE
-        sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
-        if not sentences:
-            return [{"start_time": format_time(0.0), "end_time": format_time(duration_s), "text": text}]
-
-        total_chars = sum(len(s) for s in sentences)
-        segments: list[dict[str, str]] = []
-        current_time = 0.0
-        for sentence in sentences:
-            end = min(current_time + (len(sentence) / total_chars) * duration_s, duration_s)
-            segments.append(
-                {
-                    "start_time": format_time(current_time),
-                    "end_time": format_time(end),
-                    "text": sentence,
-                }
-            )
-            current_time = end
-        return segments
-
-    except Exception as e:
-        logger.error(f"Fallback segmentation failed: {e}")
-        return []
+    segments = _offsets_to_segments(all_offsets)
+    if not segments:
+        logger.warning("Fallback chunked segmentation returned no segments")
+    return segments
 
 
 def _split_chunk_by_sentences(text: str, start_time: float, end_time: float) -> list[dict[str, str]]:

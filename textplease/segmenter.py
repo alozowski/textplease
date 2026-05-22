@@ -54,11 +54,7 @@ class SimilarityComputer:
         self.embedding_cache: dict[str, Any] = {}
 
     def precompute_embeddings(self, texts: list[str]) -> None:
-        """Encode all unique texts in one batched call and cache the results.
-
-        This must be called before the merge loop. After this, all
-        compute_similarity() calls hit the cache with no model.encode() overhead.
-        """
+        """Encode all unique texts in one batched call and store in the cache."""
         unique = list({t for t in texts if t.strip()})
         if not unique:
             return
@@ -165,11 +161,7 @@ def _merge_segments(
     min_chars: int,
     memory_monitor: MemoryMonitor | None = None,
 ) -> list[dict]:
-    """Merge a sequence of segments by semantic similarity and pause duration.
-
-    Embeddings must be pre-computed via SimilarityComputer.precompute_embeddings()
-    before calling this function for efficient O(1) similarity lookups.
-    """
+    """Merge a sequence of segments by semantic similarity and pause duration."""
     merged: list[dict] = []
     current = segments[0].copy()
 
@@ -300,12 +292,7 @@ def _handle_short_segment(
     min_words: int,
     min_chars: int,
 ) -> tuple[bool, int]:
-    """Attempt to absorb a too-short segment into a neighbour.
-
-    Returns:
-        (was_merged, extra_index_increment) — increment is 1 if next segment was consumed.
-
-    """
+    """Absorb a too-short segment into a neighbour; returns (merged, extra_index_increment)."""
     text = current["text"].strip()
 
     if merge_segments_if_short(processed, current, max_words, min_words, min_chars):
@@ -378,25 +365,7 @@ def segment_transcript(
     batch_size: int = 32,
     chunk_size: int = 1000,
 ) -> list[dict]:
-    """Merge transcript segments by semantic similarity.
-
-    Args:
-        segments: Initial list of timestamped transcription segments.
-        similarity_threshold: Cosine similarity threshold for merging (0.0–1.0).
-        pause_threshold: Max pause in seconds between segments to allow merging.
-        model: Pre-loaded SentenceTransformer, or None to load from embedding_model_name.
-        max_words: Max words per output segment.
-        min_words: Min words for a segment to stand alone.
-        min_chars: Min characters for a segment to stand alone.
-        embedding_model_name: Model name used when model=None.
-        preferred_device: Device hint ('cpu', 'cuda', 'mps') used when model=None.
-        batch_size: Batch size for pre-encoding segment texts.
-        chunk_size: Process in chunks of this size to bound memory (0 = no chunking).
-
-    Returns:
-        List of merged, semantically coherent segments.
-
-    """
+    """Merge transcript segments by semantic similarity."""
     if not segments:
         return []
 
@@ -409,8 +378,7 @@ def segment_transcript(
 
     similarity_computer = SimilarityComputer(model, batch_size)
 
-    # Pre-encode all segment texts in a single batched call.
-    # After this, compute_similarity() is O(1) vector lookups throughout the merge loop.
+    # Single batched encode upfront → O(1) cache lookups during merge.
     all_texts = [seg["text"] for seg in segments]
     similarity_computer.precompute_embeddings(all_texts)
 
