@@ -1,6 +1,5 @@
 import shutil
 import logging
-import traceback
 from pathlib import Path
 
 import yaml
@@ -8,6 +7,7 @@ import gradio as gr
 import pandas as pd
 from pydub.utils import mediainfo  # type: ignore
 
+from textplease.pipeline import DEFAULT_EMBEDDING_MODEL, run_transcription_pipeline
 from textplease.utils.device_utils import detect_device
 
 
@@ -32,7 +32,6 @@ def _prepare_input_files(audio_file) -> tuple[Path, Path]:
     if not source_path.exists():
         raise FileNotFoundError(f"Uploaded file not found: {audio_file.name}")
 
-    INPUT_DIR.mkdir(parents=True, exist_ok=True)
     input_path = INPUT_DIR / source_path.name
 
     try:
@@ -72,7 +71,7 @@ def _create_transcription_config(
         "max_segment_words": max_segment_words,
         "min_segment_words": min_segment_words,
         "min_segment_chars": min_segment_chars,
-        "embedding_model": "all-mpnet-base-v2",
+        "embedding_model": DEFAULT_EMBEDDING_MODEL,
         "log_level": "INFO",
         "language": language,
     }
@@ -94,8 +93,6 @@ def _execute_and_report(
         return f"❌ Error saving config: {e}", None
 
     try:
-        # Late import to avoid circular dependency
-        from textplease.main import run_transcription_pipeline
         run_transcription_pipeline(config)
 
         if not output_path.exists():
@@ -111,7 +108,6 @@ def _execute_and_report(
         )
     except Exception as e:
         logger.error(f"Transcription failed: {e}", exc_info=True)
-        logger.debug(traceback.format_exc())
         return f"❌ Error: {e}", None
     finally:
         if INPUT_DIR.exists():
@@ -184,15 +180,15 @@ def start_transcription(
 
             return (
                 status_msg,
-                gr.update(value=output_file, visible=True),  # Show download button
-                gr.update(interactive=True, value=True),      # Enable AND check the checkbox
-                preview_data,                                 # Show the preview immediately
-                output_file,  # state with transcript path
+                gr.update(value=output_file, visible=True), # Show download button
+                gr.update(interactive=True, value=True), # Enable AND check the checkbox
+                preview_data, # Show the preview immediately
+                output_file, # state with transcript path
             )
         else:
             return (
                 status_msg,
-                gr.update(visible=False),  # Hide download button
+                gr.update(visible=False), # Hide download button
                 gr.update(interactive=False, value=False),
                 gr.update(visible=False, value=None),
                 None,
@@ -242,33 +238,24 @@ def preview_transcript(show: bool, file_path: str | None):
 
     The file is named *.csv but content is tab-separated, so we load with sep="\t".
     """
-    logger.info(
-        f"preview_transcript called: show={show}, file_path={file_path}, type={type(file_path)}"
-    )
-
     if not show:
         return gr.update(visible=False)
 
     if not file_path:
-        logger.warning("Preview requested but no file path provided")
         return gr.update(
             visible=True,
             value=[["Output file not found. Please run transcription first."]],
         )
 
     path = Path(file_path)
-    logger.info(f"Checking file path for preview: {path}")
-
     if not path.exists():
-        logger.warning(f"Preview requested but file doesn't exist: {path}")
         return gr.update(
             visible=True,
             value=[["Output file not found. Please wait for transcription to complete."]],
         )
 
     try:
-        logger.info(f"Reading TSV/CSV from: {path}")
-        df = pd.read_csv(path, sep="\t")  # tab-delimited content
+        df = pd.read_csv(path, sep="\t")
 
         if df.empty:
             return gr.update(
@@ -277,8 +264,6 @@ def preview_transcript(show: bool, file_path: str | None):
             )
 
         head = df.head(10)
-        logger.info(f"Successfully loaded {len(df)} segments, showing first {len(head)}")
-
         return gr.update(
             visible=True,
             value={
@@ -362,7 +347,7 @@ def launch_gradio():
                 value=10,
                 step=1,
                 label="Chunk Duration (minutes)",
-                info="Audio split size for processing (default: 10 min)",
+                info="NeMo (Parakeet) only — maximum audio chunk size. Whisper uses VAD-based segmentation and ignores this setting.",
             )
             max_batch_size = gr.Slider(
                 1,
@@ -370,7 +355,7 @@ def launch_gradio():
                 value=1,
                 step=1,
                 label="Max Batch Size",
-                info="Ignored by Whisper backend, kept for compatibility",
+                info="NeMo (Parakeet) only — batch size for ASR inference. Whisper uses model.generate() and ignores this setting.",
             )
             similarity_threshold = gr.Slider(
                 0.0,
@@ -386,7 +371,7 @@ def launch_gradio():
                 step=0.1,
                 value=2.0,
                 label="Pause Threshold (seconds)",
-                info="Max pause duration to allow merging segments (longer pauses force splits, default: 2s)",
+                info="Silence duration that splits segments. Also controls Silero-VAD: silences longer than this separate distinct speech segments before transcription (default: 2s).",
             )
             max_segment_words = gr.Slider(
                 10,
@@ -473,13 +458,13 @@ def launch_gradio():
 
         def clear_all():
             return (
-                None,                                   # audio_input
-                None,                                   # audio_preview
-                "Waiting...",                           # status_text
-                gr.update(visible=False),               # download_button
-                gr.update(value=False, interactive=False),  # show_transcript
-                gr.update(visible=False, value=None),   # csv_preview
-                None,                                   # transcript_state
+                None, # audio_input
+                None, # audio_preview
+                "Waiting...", # status_text
+                gr.update(visible=False), # download_button
+                gr.update(value=False, interactive=False), # show_transcript
+                gr.update(visible=False, value=None), # csv_preview
+                None, # transcript_state
             )
 
         clear_btn.click(
@@ -503,7 +488,7 @@ def launch_gradio():
         )
 
         download_button.click(
-            lambda file_path: file_path,  # Return the file path from state
+            lambda file_path: file_path, # Return the file path from state
             inputs=[transcript_state],
             outputs=[download_button],
         )
