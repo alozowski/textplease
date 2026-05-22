@@ -3,14 +3,12 @@ name: Type check
 on:
   push:
     paths:
-      - "src/**"
-      - "tests/**"
+      - "textplease/**"
       - ".github/workflows/**"
       - "pyproject.toml"
   pull_request:
     paths:
-      - "src/**"
-      - "tests/**"
+      - "textplease/**"
       - ".github/workflows/**"
       - "pyproject.toml"
 
@@ -22,25 +20,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  mypy:
+  typecheck:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Install system dependencies
-        uses: awalsh128/cache-apt-pkgs-action@latest
-        with:
-          packages: libcairo2-dev libgirepository1.0-dev
-          version: 1.0
-
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4
 
       - name: Install uv
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
         with:
           python-version: "3.12"
 
-      - name: Install deps (locked) incl. vision extras
-        run: uv sync --frozen --group dev --extra all_vision
-
-      - name: Run mypy
-        run: uv run mypy
+      - name: Run ty
+        run: uvx ty check textplease/
