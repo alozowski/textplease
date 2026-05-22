@@ -39,42 +39,35 @@ def extract_audio(input_path: str) -> str:
     try:
         base, ext = os.path.splitext(input_path)
         ext = ext.lower()
-        output_path: str | None = ""
 
         if ext == ".wav":
             try:
                 info = ffmpeg.probe(input_path)
                 audio_stream = next((s for s in info["streams"] if s["codec_type"] == "audio"), None)
                 if not audio_stream:
-                    logger.error(f"No audio stream found in file: {input_path}")
                     raise ValueError(f"No audio stream found in file: {input_path}")
 
                 channels = int(audio_stream.get("channels", 0))
                 sample_rate = int(audio_stream.get("sample_rate", 0))
 
-                # Skip conversion if already in correct format
                 if channels == TARGET_CHANNELS and sample_rate == TARGET_SAMPLE_RATE:
                     logger.info("Input WAV is already mono 16kHz. Skipping re-encoding.")
                     return input_path
 
                 logger.warning(
-                    f"WAV file '{input_path}' has incompatible format (channels={channels}, sample_rate={sample_rate}). "
-                    "Re-encoding to mono 16kHz WAV."
+                    f"WAV file '{input_path}' has incompatible format "
+                    f"(channels={channels}, sample_rate={sample_rate}). Re-encoding to mono 16kHz WAV."
                 )
-                output_path = f"{base}_processed.wav"
-
             except ffmpeg.Error as e:
                 error_msg = e.stderr.decode() if e.stderr else str(e)
                 logger.warning(f"FFmpeg probe failed: {error_msg}. Will attempt conversion.")
-                output_path = f"{base}_processed.wav"
             except ValueError:
                 raise
             except Exception as e:
                 logger.error(f"Unexpected error probing WAV file: {e}")
-                output_path = f"{base}_processed.wav"
+            output_path: str = f"{base}_processed.wav"
 
         else:
-            # Non-WAV file needs conversion
             logger.info(f"Input file '{input_path}' is not a WAV. Converting to mono 16kHz WAV.")
             output_path = f"{base}.wav"
 

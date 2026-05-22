@@ -191,16 +191,6 @@ def _process_output(
     try:
         result = output[0]
 
-        # DEBUG: Log what we received
-        logger.info("=== NeMo Output Debug ===")
-        logger.info(f"Has timestamp attr: {hasattr(result, 'timestamp')}")
-        if hasattr(result, "timestamp"):
-            logger.info(f"Timestamp value: {result.timestamp}")
-            if result.timestamp:
-                logger.info(f"Timestamp keys: {result.timestamp.keys() if isinstance(result.timestamp, dict) else 'Not a dict'}")
-                if isinstance(result.timestamp, dict) and "word" in result.timestamp:
-                    logger.info(f"Number of words: {len(result.timestamp['word'])}")
-
         # Try to use word-level timestamps if available
         if hasattr(result, "timestamp") and result.timestamp and result.timestamp.get("word"):
             words = result.timestamp["word"]
@@ -308,7 +298,7 @@ def _group_words_into_segments(
         # Split on: long pause, silence word, sentence boundary, or max words reached
         should_split = (
             (pause > pause_threshold and not is_too_short) or
-            (is_silence_word and not is_too_short) or  # NEW: Split on silence words
+            (is_silence_word and not is_too_short) or
             _ends_sentence(words[i - 1]["word"]) or
             current_word_count >= max_segment_words
         )
