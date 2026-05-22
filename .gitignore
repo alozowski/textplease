@@ -27,6 +27,8 @@ output
 .idea/
 *.sublime-project
 *.sublime-workspace
+.gradio
+.claude
 
 # OS files
 .DS_Store
