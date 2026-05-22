@@ -1,23 +1,29 @@
-.PHONY: style format quality check all
+.PHONY: style check all quality typecheck lock-check
 
-# Applies code style fixes to the specified file or directory
+# Apply ruff fixes to $(file) or the whole repo if file= is unset
 style:
-	@echo "Applying style fixes to $(file)"
-	ruff format $(file)
-	ruff check --fix $(file)
+	uv run ruff format $(or $(file),.)
+	uv run ruff check --fix $(or $(file),.)
 
-# Checks code quality for the specified file or directory without applying fixes
+# Check without applying fixes — mirrors lint.yml
 check:
-	@echo "Checking code quality for $(file) without fixes"
-	ruff format --diff $(file)
-	ruff check $(file)
+	uv run ruff format --check $(or $(file),.)
+	uv run ruff check $(or $(file),.)
 
-# Applies PEP8 formatting and checks the entire codebase
-all: style
-	@echo "Formatting and checking the entire codebase"
-	$(MAKE) style file=.
+# Run ty type checker — mirrors typecheck.yml
+typecheck:
+	uvx ty check textplease/
 
-# Checks the entire codebase without applying fixes (for CI)
-quality: check
-	@echo "Checking quality of the entire codebase without fixes"
-	$(MAKE) check file=.
+# Verify uv.lock is up to date — mirrors uv-lock-check.yml
+lock-check:
+	uv lock --check
+
+# Fix the entire codebase
+all:
+	$(MAKE) style
+
+# Full CI-equivalent check: lint + types + lock
+quality:
+	$(MAKE) check
+	$(MAKE) typecheck
+	$(MAKE) lock-check
