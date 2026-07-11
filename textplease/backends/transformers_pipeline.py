@@ -45,8 +45,7 @@ def _load_model_and_processor(
         low_cpu_mem_usage=True,
         use_safetensors=True,
     )
-    # Transformers' decorator hides this bound method from ty.
-    model = model.to(torch.device(device))  # ty: ignore[invalid-argument-type]
+    model = model.to(torch.device(device))
     return model, processor
 
 
@@ -116,7 +115,6 @@ def _transcribe_speech_segments(
         attention_mask = None
 
     with torch.no_grad():
-        # Transformers' decorator hides this bound method from ty.
         generated_ids = model.generate(
             input_features=input_features,
             attention_mask=attention_mask,
@@ -126,7 +124,7 @@ def _transcribe_speech_segments(
             temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
             compression_ratio_threshold=1.35,
             logprob_threshold=-1.0,
-        )  # ty: ignore[missing-argument]
+        )
 
     time_precision = processor.feature_extractor.chunk_length / model.config.max_source_positions
     decoded_offsets: list[list[_WhisperOffset]] = []
