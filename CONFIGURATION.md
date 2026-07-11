@@ -173,6 +173,10 @@ performance:
 
 `chunk_size` controls how many pieces of the Whisper transcript are handled at once during merging. Set it to `0` to turn chunked merging off. Embeddings are created before this stage, so lowering `chunk_size` does not reduce the memory used to create them.
 
+The web interface keeps its loaded Whisper and embedding models after a successful transcription so later jobs can
+reuse them. Stopping, killing, or failing a job discards the worker and its models; changing the model or device also
+starts a fresh worker.
+
 ## Environment variables
 
 You can set environment variables from the YAML file:

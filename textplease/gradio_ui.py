@@ -2,7 +2,6 @@ import re
 import time
 import shutil
 import logging
-import multiprocessing
 from pathlib import Path
 
 import yaml
@@ -10,9 +9,9 @@ import gradio as gr
 import pandas as pd
 from pydub.utils import mediainfo
 
-from textplease.pipeline import DEFAULT_EMBEDDING_MODEL, run_transcription_pipeline
+from textplease.pipeline import DEFAULT_EMBEDDING_MODEL
+from textplease.gradio_worker import PersistentPipelineWorker
 from textplease.utils.device_utils import detect_device
-from textplease.utils.logging_config import configure_logging
 
 
 logger = logging.getLogger(__name__)
@@ -21,11 +20,12 @@ OUTPUT_DIR = Path("output")
 INPUT_DIR = Path("input")
 
 DEFAULT_MODEL = "openai/whisper-large-v3"
+PIPELINE_WORKER = PersistentPipelineWorker()
 
 # Whisper backend logs one line per VAD segment — the child's log file is the progress signal.
 _PROGRESS_RE = re.compile(r"Transcribing speech segment (\d+)/(\d+)")
 
-# Gradio has no native button tooltips (gradio-app/gradio#3050); set browser title attributes on load.
+# Gradio has no native button tooltips, set browser title attributes on load.
 _TOOLTIP_JS = """
 () => {
     const tips = {
@@ -117,13 +117,6 @@ def _create_transcription_config(
     }
 
 
-def _run_pipeline_process(config: dict, log_path: str) -> None:
-    """Run the pipeline in a child process, logging to the terminal and a progress file."""
-    configure_logging()
-    logging.getLogger().addHandler(logging.FileHandler(log_path))
-    run_transcription_pipeline(config)
-
-
 def start_transcription(
     audio_file,
     similarity_threshold,
@@ -171,9 +164,8 @@ def start_transcription(
 
         log_path = OUTPUT_DIR / f"{input_path.stem}_run.log"
         log_path.unlink(missing_ok=True)
-        process = multiprocessing.Process(target=_run_pipeline_process, args=(config, str(log_path)), daemon=True)
-        process.start()
-        logger.info(f"Transcription process started (pid={process.pid})")
+        job_id = PIPELINE_WORKER.submit(config, str(log_path))
+        logger.info(f"Transcription process started (pid={PIPELINE_WORKER.pid})")
 
         return (
             "⏳ Transcription starting...",
@@ -185,7 +177,7 @@ def start_transcription(
             gr.update(visible=True),
             gr.update(active=True),
             {
-                "process": process,
+                "job_id": job_id,
                 "input_path": input_path,
                 "output_path": output_path,
                 "config_path": config_path,
@@ -196,6 +188,8 @@ def start_transcription(
 
     except (ValueError, FileNotFoundError, IOError) as e:
         return _err(f"❌ File error: {e}")
+    except RuntimeError as e:
+        return _err(f"❌ {e}")
     except Exception as e:
         logger.error(f"Unexpected error in start_transcription: {e}", exc_info=True)
         return _err(f"❌ Unexpected error: {e}")
@@ -217,7 +211,8 @@ def check_completion(run, transcript_path):
     if run is None:
         return noop
 
-    if run["process"].is_alive():
+    done, error = PIPELINE_WORKER.result(run["job_id"])
+    if not done:
         elapsed = int(time.time() - run["started"])
         try:
             log_text = run["log_path"].read_text()
@@ -238,7 +233,6 @@ def check_completion(run, transcript_path):
             status = f"⏳ Loading model... · {elapsed}s elapsed"
         return (status, *noop[1:])
 
-    process = run["process"]
     output_path = run["output_path"]
 
     try:
@@ -248,7 +242,7 @@ def check_completion(run, transcript_path):
 
     done = (gr.update(visible=False), gr.update(visible=False), gr.update(active=False), None)
 
-    if process.exitcode == 0 and output_path.exists():
+    if error is None and output_path.exists():
         return (
             f"✅ Transcription complete!\n"
             f"📄 Transcript saved to: `{output_path}`\n"
@@ -260,10 +254,10 @@ def check_completion(run, transcript_path):
             *done,
         )
 
-    if process.exitcode is not None and process.exitcode < 0:
-        status = f"🛑 Transcription stopped (exit code {process.exitcode})"
+    if PIPELINE_WORKER.exitcode is not None and PIPELINE_WORKER.exitcode < 0:
+        status = f"🛑 Transcription stopped (exit code {PIPELINE_WORKER.exitcode})"
     else:
-        status = f"❌ Transcription failed (exit code {process.exitcode}) — see `{run['log_path']}`"
+        status = f"❌ Transcription failed ({error}) — see `{run['log_path']}`"
     return (
         status,
         gr.update(visible=False),
@@ -276,16 +270,16 @@ def check_completion(run, transcript_path):
 
 def stop_transcription(run):
     """Terminate the transcription process gracefully."""
-    if run and run["process"].is_alive():
-        run["process"].terminate()
+    if run and PIPELINE_WORKER.is_running(run["job_id"]):
+        PIPELINE_WORKER.terminate()
         return "🛑 Stopping..."
     return "Process is not running"
 
 
 def kill_transcription(run):
     """Kill the transcription process immediately."""
-    if run and run["process"].is_alive():
-        run["process"].kill()
+    if run and PIPELINE_WORKER.is_running(run["job_id"]):
+        PIPELINE_WORKER.terminate(force=True)
         return "💀 Killed"
     return "Process is not running"
 
@@ -501,8 +495,8 @@ def launch_gradio():
         kill_button.click(kill_transcription, inputs=[run_state], outputs=[status_text])
 
         def clear_all(run):
-            if run and run["process"].is_alive():
-                run["process"].terminate()
+            if run and PIPELINE_WORKER.is_running(run["job_id"]):
+                PIPELINE_WORKER.terminate()
             return (
                 None,  # audio_input
                 None,  # audio_preview
@@ -549,7 +543,10 @@ def launch_gradio():
 
         demo.load(None, js=_TOOLTIP_JS)
 
-    demo.launch()
+    try:
+        demo.launch()
+    finally:
+        PIPELINE_WORKER.shutdown()
 
 
 if __name__ == "__main__":
