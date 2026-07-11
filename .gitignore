@@ -43,7 +43,6 @@ htmlcov/
 
 # Linting / formatting / tooling
 .ruff_cache/
-.mypy_cache/
 .pyre/
 .pytype/
 .cache/
