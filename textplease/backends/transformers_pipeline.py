@@ -206,15 +206,10 @@ def transcribe(
     audio_path: str,
     model_name: str,
     device: str,
-    chunk_duration_minutes: int = 10,
     pause_threshold: float = 2.0,
-    batch_size: int = 1,
     language: str = "en",
 ) -> list[dict[str, Any]]:
     """Transcribe audio using Silero-VAD + Whisper model.generate()."""
-    if batch_size != 1:
-        logger.warning(f"Ignoring batch_size={batch_size} — not applicable to model.generate()")
-
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()

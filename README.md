@@ -1,19 +1,20 @@
-# 📝 text, please! — Intelligent Audio Transcription
+# text, please!
 
-**textplease** transforms your long-form audio and video files into accurate, structured transcripts with intelligent segmentation and precise timestamps.
+**textplease** converts long-form audio and video into accurate, structured transcripts with semantic segmentation and precise timestamps.
 
-## 🎯 Why you might need it?
-Perfect for researchers, content creators, podcasters, students, journalists, and anyone who needs quality transcripts from long recordings.
-- Smart segmentation – breaks transcripts into logical segments based on pauses and topic changes rather than random time segments.
-- Open-source support – uses state-of-the-art ASR models via Hugging Face.
-- Long-form ready — handles hours of audio without quality degradation.
-- Timestamp precision — every segment includes accurate start/end times.
-- Easy start — simple YAML configuration with a `.csv` output.
-- Local processing — your audio never leaves your machine.
+## Features
 
-## 🚀 Quick Start
+- Semantic segmentation – splits transcripts into coherent segments by pause and topic rather than fixed time windows.
+- Long-form ready – handles hours of audio without quality degradation.
+- Precise timestamps – every segment carries accurate start and end times.
+- Open-source models – runs state-of-the-art ASR via Hugging Face Transformers.
+- Simple I/O – YAML configuration in, tab-separated `.csv` out.
+- Local processing – audio never leaves your machine.
+
+## Quick Start
 
 ### Installation
+
 ```bash
 git clone https://github.com/alozowski/textplease.git
 cd textplease
@@ -21,83 +22,74 @@ uv sync
 source .venv/bin/activate
 ```
 
-### Usage Options
+### Web interface
 
-#### 🌐 Web Interface
-Launch the user-friendly Gradio web interface:
 ```bash
 textplease --gradio
 ```
 
-Then open your browser and:
-1. Upload your audio/video file (.mp3, .wav, .mp4, .m4a, .ogg)
-2. Adjust settings if needed (or use the smart defaults)
-3. Click "🚀 Start Transcription"
-4. Download your transcript when complete!
+Then, in your browser:
 
-> 💡 Note: the config file will be created automatically.
+1. Upload an audio or video file (`.mp3`, `.wav`, `.mp4`, `.m4a`, `.ogg`).
+2. Adjust the settings or keep the defaults.
+3. Click **Start Transcription**.
+4. Download the transcript when it completes.
 
-#### 💻 Command Line Interface
-For more precise settings, use this terminal command:
+The config file is created automatically.
+
+### Command line
+
 ```bash
 # Use the example config
 textplease --config examples/config_example.yaml
 
-# Or create your own config.yaml:
+# Or your own
 textplease --config my_config.yaml
 ```
-After the process completes, the transcript will be saved to the path specified in `output_path` inside your config. For the example config, that will be `examples/LJSpeech-001_transcript.csv`
 
-## 🏗️ How It Works
-textplease uses a modular pipeline designed for accuracy and flexibility:
-1. **Audio Processing**: extracts and preprocesses audio from video/audio files.
-2. **ASR Transcription**: converts speech to text using advanced neural models.
-   - Supports both English-only (NeMo) and multilingual (Whisper) models
-   - Language parameter available for Whisper models (supports 97+ languages)
-   - Silero-VAD preprocessing: silence regions are removed before transcription, eliminating hallucinations at the source
-   - Whisper uses `model.generate()` with temperature fallback and compression-ratio quality gating — no manual chunking artifacts
-   - Post-transcription hallucination filter removes known Whisper false-positive phrases
-   - Deduplication removes any remaining word overlap at chunk boundaries
-3. **Smart Segmentation**: groups text into logical segments using:
-   - Pause detection (silence-based boundaries, aligned with VAD split points)
-   - Semantic analysis (topic coherence via sentence embeddings, batch-encoded for efficiency)
-4. **Post-Processing**: enforces length constraints and formats the final output.
-   - Merges segments that are too short
-   - Splits segments that are too long (respects `max_segment_words` limit)
-   - Filters empty segments and saves to CSV
+The transcript is written to the `output_path` set in the config. For the example config, that is `examples/LJSpeech-001_transcript.csv`.
+
+## How It Works
+
+textplease runs a modular pipeline:
+
+1. Audio processing – extracts and normalizes audio from the input file.
+2. ASR transcription – converts speech to text with multilingual Whisper models.
+   - Language is selectable (97+ languages).
+   - Silero-VAD removes silence before transcription, cutting hallucinations at the source.
+   - Whisper runs via `model.generate()` with temperature fallback and compression-ratio quality gating.
+   - A post-transcription filter removes known Whisper hallucination phrases.
+   - Deduplication removes residual word overlap at chunk boundaries.
+3. Segmentation – groups text into coherent segments using pause detection (aligned with VAD boundaries) and semantic similarity from sentence embeddings.
+4. Post-processing – enforces length constraints, merges short segments, splits long ones, and writes the CSV.
+
 ```mermaid
 flowchart TD
     A[config.yaml] --> B@{ shape: "hex", label: "main.py" }
     B --> C[transcriber.py]
-    C --> D@{ shape: "diam", label: "Load ASR Model" }
-    D --> D1[NeMo Backend]
-    D --> D2[Whisper Backend]
-    D1 --> E[Convert audio to text with timestamps]
-    D2 --> E
+    C --> D[Whisper Backend]
+    D --> E[Convert audio to text with timestamps]
     E --> F[segmenter.py]
     F --> G[clean & deduplicate segments]
     G --> H@{ shape: "cyl", label: "transcript.csv" }
-    
+
     style A fill:#e1f5fe
     style B color:#000000,fill:#C1FF72
     style D color:#000000,fill:#FFDE59
-    style D1 fill:#FFB3BA
-    style D2 fill:#FFB3BA
     style F fill:#f3e5f5
     style H fill:#C1FF72,stroke-width:0.5px,stroke:#000000
 ```
 
-## 🤖 Supported Models
+## Supported Models
 
-### NeMo Backend (English only)
-- [nvidia/parakeet-ctc-1.1b](https://huggingface.co/nvidia/parakeet-ctc-1.1b) — fast, modern, accurate
+Transcription runs on multilingual Whisper models via Hugging Face Transformers:
 
-### Transformers Backend (Multilingual)
-- [openai/whisper-large-v3](https://huggingface.co/openai/whisper-large-v3) — multilingual model (recommended for non-English)
-- Extensible architecture supports additional Hugging Face models
+- [openai/whisper-large-v3](https://huggingface.co/openai/whisper-large-v3) — multilingual, 97+ languages
 
-## 📥 Output Format
-Transcripts are saved as tab-separated `.csv` files with:
-| start\_time | end\_time | text                   |
-| ----------- | --------- | ---------------------- |
-| 00:00:00    | 00:00:06  | Welcome to the demo... |
+## Output Format
+
+Transcripts are tab-separated `.csv` files:
+
+| start_time | end_time | text                   |
+| ---------- | -------- | ---------------------- |
+| 00:00:00   | 00:00:06 | Welcome to the demo... |
