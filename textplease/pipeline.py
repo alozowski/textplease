@@ -110,15 +110,6 @@ def _extract_config_params(config: dict) -> dict:
     }
 
 
-def _load_embedding_model(model_name: str, device: str) -> SentenceTransformer:
-    """Load the SentenceTransformer model for semantic segmentation."""
-    start = time.time()
-    logger.info(f"Loading SentenceTransformer '{model_name}' on: {device}")
-    model = SentenceTransformer(model_name, device=device)
-    logger.info(f"SentenceTransformer loaded in {time.time() - start:.2f}s")
-    return model
-
-
 def _filter_hallucinations(segments: list[dict]) -> list[dict]:
     """Strip known Whisper hallucination phrases and drop repetition-loop segments."""
     cleaned = []
@@ -165,7 +156,7 @@ def _execute_transcription_stage(params: dict, audio_path: str) -> list[dict]:
     return segments
 
 
-def _execute_segmentation_stage(segments: list, params: dict, model: SentenceTransformer) -> list[dict]:
+def _execute_segmentation_stage(segments: list, params: dict, model: SentenceTransformer | None) -> list[dict]:
     """Merge segments semantically using sentence embeddings."""
     logger.info(f"Estimated segmentation time: {estimate_processing_time(len(segments))}")
     t0 = time.time()
@@ -237,9 +228,15 @@ def run_transcription_pipeline(config: dict) -> None:
     audio_path = extract_audio(params["input_path"])
     logger.info(f"Audio extraction: {time.time() - t0:.2f}s")
 
-    embedding_model = _load_embedding_model(params["embedding_model_name"], params["device"])
-
     segments = _execute_transcription_stage(params, audio_path)
+
+    embedding_model = None
+    if len(segments) > 1 and params["similarity_threshold"] < 1.0:
+        t0 = time.time()
+        logger.info(f"Loading SentenceTransformer '{params['embedding_model_name']}' on: {params['device']}")
+        embedding_model = SentenceTransformer(params["embedding_model_name"], device=params["device"])
+        logger.info(f"SentenceTransformer loaded in {time.time() - t0:.2f}s")
+
     coherent = _execute_segmentation_stage(segments, params, embedding_model)
     final = _execute_post_processing(coherent, params)
     _save_and_cleanup(final, params, audio_path)

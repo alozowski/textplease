@@ -76,6 +76,7 @@ This controls whether nearby pieces of text are similar enough to join together.
 | `1.0` | Effectively turns off similarity-based merging |
 
 `0.0` does **not** turn merging off. Short fragments may still be joined to a neighbour even when this is set to `1.0`.
+At `1.0`, the embedding model is not loaded because semantic similarity cannot affect the result.
 
 ### Segment length
 

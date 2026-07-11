@@ -92,14 +92,14 @@ def _should_merge(
     current_text: str,
     next_text: str,
     pause_duration: float,
-    similarity_computer: SimilarityComputer,
+    similarity_computer: SimilarityComputer | None,
     similarity_threshold: float,
     max_pause: float,
 ) -> bool:
     """Return True if two segments are semantically similar within the pause limit."""
     if not current_text.strip() or not next_text.strip():
         return False
-    if pause_duration > max_pause:
+    if similarity_computer is None or pause_duration > max_pause:
         return False
     return similarity_computer.compute_similarity(current_text, next_text) > similarity_threshold
 
@@ -149,7 +149,7 @@ def split_long_segment(segment: dict, max_words_per_chunk: int) -> list[dict]:
 
 def _merge_segments(
     segments: list[dict],
-    similarity_computer: SimilarityComputer,
+    similarity_computer: SimilarityComputer | None,
     similarity_threshold: float,
     pause_threshold: float,
     max_words: int,
@@ -206,7 +206,7 @@ def _merge_segments(
 def _merge_chunk_boundaries(
     prev_last: dict,
     curr_first: dict,
-    similarity_computer: SimilarityComputer,
+    similarity_computer: SimilarityComputer | None,
     similarity_threshold: float,
     pause_threshold: float,
     max_words: int,
@@ -227,7 +227,7 @@ def _merge_chunk_boundaries(
 
 def _process_segments_in_chunks(
     segments: list[dict],
-    similarity_computer: SimilarityComputer,
+    similarity_computer: SimilarityComputer | None,
     similarity_threshold: float,
     pause_threshold: float,
     max_words: int,
@@ -367,15 +367,13 @@ def segment_transcript(
     memory_monitor = MemoryMonitor()
     logger.info(f"Starting segmentation: {len(segments)} segments. Memory: {memory_monitor.get_memory_usage():.2f}GB")
 
-    if model is None:
-        device = detect_device(preferred_device)
-        model = SentenceTransformer(embedding_model_name, device=device)
-
-    similarity_computer = SimilarityComputer(model, batch_size)
-
-    # Single batched encode upfront → O(1) cache lookups during merge.
-    all_texts = [seg["text"] for seg in segments]
-    similarity_computer.precompute_embeddings(all_texts)
+    similarity_computer = None
+    if len(segments) > 1 and similarity_threshold < 1.0:
+        if model is None:
+            device = detect_device(preferred_device)
+            model = SentenceTransformer(embedding_model_name, device=device)
+        similarity_computer = SimilarityComputer(model, batch_size)
+        similarity_computer.precompute_embeddings([seg["text"] for seg in segments])
 
     effective_chunk_size = chunk_size if chunk_size > 0 else len(segments) + 1
 
