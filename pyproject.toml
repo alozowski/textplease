@@ -2,7 +2,7 @@
 name = "textplease"
 version = "0.1.0"
 authors = [
-    { name = "Alina Lozovskaia", email = "alinailozovskaya@gmail.com" },
+    { name = "Alina Lozovskaia", email = "ailozowski@gmail.com" },
 ]
 description = "Get a text transcription from an uploaded media file"
 readme = "README.md"
