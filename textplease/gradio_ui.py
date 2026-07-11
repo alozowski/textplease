@@ -1,6 +1,5 @@
 import re
 import time
-import shutil
 import logging
 from pathlib import Path
 
@@ -17,7 +16,6 @@ from textplease.utils.device_utils import detect_device
 logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = Path("output")
-INPUT_DIR = Path("input")
 
 DEFAULT_MODEL = "openai/whisper-large-v3"
 PIPELINE_WORKER = PersistentPipelineWorker()
@@ -63,30 +61,6 @@ LANGUAGE_CHOICES = [
     ("Korean", "ko"),
     ("Japanese", "ja"),
 ]
-
-
-def _prepare_input_files(audio_file) -> tuple[Path, Path]:
-    """Prepare input files for transcription."""
-    if audio_file is None:
-        raise ValueError("No audio file provided")
-
-    if not hasattr(audio_file, "name") or not audio_file.name:
-        raise ValueError("Invalid audio file object")
-
-    source_path = Path(audio_file.name)
-    if not source_path.exists():
-        raise FileNotFoundError(f"Uploaded file not found: {audio_file.name}")
-
-    INPUT_DIR.mkdir(parents=True, exist_ok=True)
-    input_path = INPUT_DIR / source_path.name
-
-    try:
-        shutil.copyfile(audio_file.name, input_path)
-    except OSError as e:
-        raise IOError(f"Failed to copy audio file: {e}") from e
-
-    output_path = OUTPUT_DIR / f"{input_path.stem}_transcript.csv"
-    return input_path, output_path
 
 
 def _create_transcription_config(
@@ -146,7 +120,10 @@ def start_transcription(
         return _err("❌ Please upload an audio file.")
 
     try:
-        input_path, output_path = _prepare_input_files(audio_file)
+        input_path = Path(audio_file)
+        if not input_path.is_file():
+            raise FileNotFoundError(f"Uploaded file not found: {audio_file}")
+        output_path = OUTPUT_DIR / f"{input_path.stem}_transcript.csv"
         config = _create_transcription_config(
             input_path,
             output_path,
@@ -178,7 +155,6 @@ def start_transcription(
             gr.update(active=True),
             {
                 "job_id": job_id,
-                "input_path": input_path,
                 "output_path": output_path,
                 "config_path": config_path,
                 "log_path": log_path,
@@ -186,7 +162,7 @@ def start_transcription(
             },
         )
 
-    except (ValueError, FileNotFoundError, IOError) as e:
+    except (ValueError, FileNotFoundError) as e:
         return _err(f"❌ File error: {e}")
     except RuntimeError as e:
         return _err(f"❌ {e}")
@@ -235,11 +211,6 @@ def check_completion(run, transcript_path):
 
     output_path = run["output_path"]
 
-    try:
-        run["input_path"].unlink(missing_ok=True)
-    except OSError as e:
-        logger.warning(f"Could not remove input file {run['input_path']}: {e}")
-
     done = (gr.update(visible=False), gr.update(visible=False), gr.update(active=False), None)
 
     if error is None and output_path.exists():
@@ -284,20 +255,21 @@ def kill_transcription(run):
     return "Process is not running"
 
 
-def show_audio_info(file):
-    """Display audio file information."""
-    if file is None:
-        return "🧹 Input cleared!"
+def show_audio_info(file_path: str | None) -> tuple[str | None, str]:
+    """Return the uploaded file for preview with its media information."""
+    if file_path is None:
+        return None, "🧹 Input cleared!"
 
     try:
-        info = mediainfo(file.name)
+        info = mediainfo(file_path)
         duration = round(float(info.get("duration", 0)), 2)
         sample_rate = info.get("sample_rate", "Unknown")
         channels = info.get("channels", "Unknown")
-        return f"🕒 Duration: {duration}s\n📊 Sample rate: {sample_rate} Hz\n🔊 Channels: {channels}"
+        details = f"🕒 Duration: {duration}s\n📊 Sample rate: {sample_rate} Hz\n🔊 Channels: {channels}"
+        return file_path, details
     except Exception as e:
         logger.error(f"Failed to get audio info: {e}")
-        return f"⚠️ Could not read audio info: {e}"
+        return file_path, f"⚠️ Could not read audio info: {e}"
 
 
 def preview_transcript(show: bool, file_path: str | None):
@@ -355,7 +327,7 @@ def launch_gradio():
         logger.warning(f"Device detection failed, defaulting to CPU: {e}")
         best_device = "cpu"
 
-    with gr.Blocks(title="textplease transcriber", theme=gr.themes.Base()) as demo:
+    with gr.Blocks(title="textplease transcriber") as demo:
         gr.Markdown("# 🎙️ text, please!")
         gr.Markdown("Upload an audio file and receive a structured transcript 📝")
 
@@ -364,14 +336,30 @@ def launch_gradio():
                 audio_input = gr.File(
                     label="Upload Audio (.mp3/.wav/.mp4/.m4a/.ogg)",
                     file_types=[".mp3", ".wav", ".mp4", ".m4a", ".ogg"],
+                    type="filepath",
                     height=180,
                 )
             with gr.Column(scale=2):
                 audio_preview = gr.Audio(label="Preview", interactive=False)
                 audio_info_box = gr.Textbox(label="File Info", lines=3)
 
-        audio_input.change(lambda f: f, inputs=audio_input, outputs=audio_preview)
-        audio_input.change(show_audio_info, inputs=audio_input, outputs=audio_info_box)
+        upload_outputs = [audio_preview, audio_info_box]
+        audio_input.upload(
+            show_audio_info,
+            inputs=audio_input,
+            outputs=upload_outputs,
+            queue=False,
+            show_progress="hidden",
+            api_visibility="private",
+        )
+        audio_input.clear(
+            show_audio_info,
+            inputs=audio_input,
+            outputs=upload_outputs,
+            queue=False,
+            show_progress="hidden",
+            api_visibility="private",
+        )
 
         with gr.Accordion("⚙️ Advanced Settings", open=False):
             with gr.Row():
@@ -544,7 +532,7 @@ def launch_gradio():
         demo.load(None, js=_TOOLTIP_JS)
 
     try:
-        demo.launch()
+        demo.launch(theme=gr.themes.Base())
     finally:
         PIPELINE_WORKER.shutdown()
 
