@@ -1,3 +1,4 @@
+import os
 import logging
 import argparse
 from pathlib import Path
@@ -5,7 +6,6 @@ from pathlib import Path
 import yaml
 
 from textplease.pipeline import run_transcription_pipeline
-from textplease.gradio_ui import launch_gradio
 from textplease.utils.logging_config import configure_logging
 
 
@@ -14,16 +14,7 @@ __all__ = ["main"]
 
 
 def load_config(path: str) -> dict:
-    """Load and return configuration from a YAML file.
-
-    Raises:
-        ValueError: If path is invalid or YAML is malformed.
-        FileNotFoundError: If config file does not exist.
-
-    """
-    if not path or not isinstance(path, str):
-        raise ValueError(f"Invalid config path: {path}")
-
+    """Load and return configuration from a YAML file."""
     config_file = Path(path)
     if not config_file.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
@@ -31,17 +22,16 @@ def load_config(path: str) -> dict:
     try:
         with open(path) as f:
             config = yaml.safe_load(f)
-        if config is None:
-            raise ValueError(f"Config file is empty: {path}")
-        return config
     except yaml.YAMLError as e:
         raise ValueError(f"Invalid YAML format in {path}: {e}") from e
+
+    if config is None:
+        raise ValueError(f"Config file is empty: {path}")
+    return config
 
 
 def apply_environment_config(env_config: dict) -> None:
     """Set environment variables from config if not already set."""
-    import os
-
     if not isinstance(env_config, dict):
         logger.warning(f"Invalid environment config (expected dict): {type(env_config)}")
         return
@@ -63,6 +53,8 @@ def main() -> None:
         args = parser.parse_args()
 
         if args.gradio:
+            from textplease.gradio_ui import launch_gradio
+
             launch_gradio()
             return
 
@@ -82,9 +74,6 @@ def main() -> None:
 
     except KeyboardInterrupt:
         logger.info("Process interrupted by user")
-    except Exception as e:
-        logger.error(f"Application failed: {e}", exc_info=True)
-        raise
 
 
 if __name__ == "__main__":

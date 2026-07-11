@@ -225,9 +225,6 @@ def transcribe(
         model, processor = _load_model_and_processor(model_name, device)
         audio_array = _load_audio(audio_path)
         return _transcribe_with_fallbacks(model, processor, audio_array, device, language, pause_threshold)
-    except Exception as e:
-        logger.error(f"Transcription failed for model '{model_name}': {e}")
-        raise
     finally:
         if model is not None:
             del model

@@ -30,30 +30,7 @@ def transcribe(
     min_segment_words: int = 3,
     min_segment_chars: int = 15,
 ) -> list[dict[str, str]]:
-    """Transcribe audio using NeMo with optional chunking for long files.
-
-    Args:
-        audio_path: Path to the audio file (must be mono 16kHz WAV).
-        model_name: Hugging Face model identifier.
-        device: Device for inference: 'cuda', 'cpu', or 'mps'.
-        chunk_duration_minutes: Maximum chunk size in minutes.
-        pause_threshold: Silence duration in seconds for segment splitting.
-        batch_size: Batch size for ASR processing.
-        max_segment_words: Maximum words per segment.
-        min_segment_words: Minimum words per segment.
-        min_segment_chars: Minimum characters per segment.
-
-    Returns:
-        List of transcription segments with 'text', 'start_time', and 'end_time'.
-
-    Raises:
-        ValueError: If audio_path is invalid or file doesn't exist
-        RuntimeError: If model loading or transcription fails
-
-    """
-    if not audio_path or not isinstance(audio_path, str):
-        raise ValueError(f"Invalid audio_path: {audio_path}")
-
+    """Transcribe audio using NeMo, with optional chunking for long files."""
     audio_file = Path(audio_path)
     if not audio_file.exists():
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
@@ -70,7 +47,6 @@ def transcribe(
         model.to(device).eval()
         logger.info("Model loaded successfully.")
     except Exception as e:
-        logger.error(f"Model loading failed: {e}", exc_info=True)
         raise RuntimeError(f"Failed to load NeMo model '{model_name}': {e}") from e
 
     try:
@@ -94,7 +70,6 @@ def transcribe(
         )
 
     except Exception as e:
-        logger.error(f"Transcription failed: {e}", exc_info=True)
         raise RuntimeError(f"Transcription failed: {e}") from e
     finally:
         if model is not None:
@@ -114,21 +89,17 @@ def _transcribe_whole_audio(
     """Transcribe the entire audio file without chunking."""
     logger.info(f"Transcribing single audio: {audio_path}")
 
-    try:
-        output = model.transcribe([audio_path], batch_size=batch_size, timestamps=True)
-        segments = _process_output(
-            output,
-            offset=0.0,
-            pause_threshold=pause_threshold,
-            max_segment_words=max_segment_words,
-            min_segment_words=min_segment_words,
-            min_segment_chars=min_segment_chars,
-        )
-        logger.info(f"Transcription complete: {len(segments)} segments")
-        return segments
-    except Exception as e:
-        logger.error(f"Whole audio transcription failed: {e}", exc_info=True)
-        raise
+    output = model.transcribe([audio_path], batch_size=batch_size, timestamps=True)
+    segments = _process_output(
+        output,
+        offset=0.0,
+        pause_threshold=pause_threshold,
+        max_segment_words=max_segment_words,
+        min_segment_words=min_segment_words,
+        min_segment_chars=min_segment_chars,
+    )
+    logger.info(f"Transcription complete: {len(segments)} segments")
+    return segments
 
 
 def _transcribe_audio_in_chunks(
