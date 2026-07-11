@@ -4,7 +4,7 @@ output_path: "examples/LJSpeech-001_transcript.csv"
 
 # ASR model — multilingual Whisper: "openai/whisper-large-v3"
 model_name: "openai/whisper-large-v3"
-device: "cpu"   # "cuda" for NVIDIA GPU, "mps" for Apple Silicon
+device: "cpu"   # "auto" for the best available device, "cuda" for NVIDIA, "mps" for Apple Silicon
 language: "en"  # language code (97+ languages supported)
 
 # Segmentation

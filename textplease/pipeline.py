@@ -225,6 +225,7 @@ def run_transcription_pipeline(config: dict) -> None:
     start = time.time()
     _validate_pipeline_config(config)
     params = _extract_config_params(config)
+    params["device"] = detect_device(params["device"])
 
     logger.info(f"Input: {params['input_path']} → Output: {params['output_path']}")
     logger.info(f"ASR: {params['model_name']} | Device: {params['device']} | Pause: {params['pause_threshold']}s")
@@ -236,8 +237,7 @@ def run_transcription_pipeline(config: dict) -> None:
     audio_path = extract_audio(params["input_path"])
     logger.info(f"Audio extraction: {time.time() - t0:.2f}s")
 
-    resolved_device = detect_device(params["device"])
-    embedding_model = _load_embedding_model(params["embedding_model_name"], resolved_device)
+    embedding_model = _load_embedding_model(params["embedding_model_name"], params["device"])
 
     segments = _execute_transcription_stage(params, audio_path)
     coherent = _execute_segmentation_stage(segments, params, embedding_model)
