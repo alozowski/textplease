@@ -19,6 +19,7 @@ embedding_model: "all-MiniLM-L6-v2"
 
 # Performance
 performance:
+  whisper_batch_size: 1     # set to 4 on CUDA; lower it if accelerator memory is limited
   similarity_batch_size: 32  # batch size for pre-encoding segment embeddings
   chunk_size: 1000           # process segments in chunks of this size (0 = no chunking)
 

@@ -1,6 +1,5 @@
 import gc
 import logging
-from typing import Any
 
 import torch
 import psutil
@@ -47,7 +46,7 @@ class SimilarityComputer:
         """Initialise with a loaded SentenceTransformer and batch size."""
         self.model = model
         self.batch_size = batch_size
-        self.embedding_cache: dict[str, Any] = {}
+        self.embedding_cache: dict[str, torch.Tensor] = {}
 
     def precompute_embeddings(self, texts: list[str]) -> None:
         """Encode all unique texts in one batched call and store in the cache."""
@@ -57,6 +56,8 @@ class SimilarityComputer:
         logger.info(f"Pre-encoding {len(unique)} unique segment texts (batch_size={self.batch_size})")
         try:
             embeddings = self.model.encode(unique, batch_size=self.batch_size, convert_to_tensor=True)
+            if not isinstance(embeddings, torch.Tensor):
+                raise TypeError("SentenceTransformer did not return tensor embeddings")
             self.embedding_cache.update(dict(zip(unique, embeddings)))
         except Exception as e:
             logger.warning(f"Batch pre-encoding failed: {e}. Similarity will fall back to 0.0.")
@@ -72,6 +73,8 @@ class SimilarityComputer:
                 # Fallback for texts not in cache (e.g. merged segment text)
                 texts_to_encode = [t for t, e in [(text1, emb1), (text2, emb2)] if e is None]
                 encoded = self.model.encode(texts_to_encode, convert_to_tensor=True)
+                if not isinstance(encoded, torch.Tensor):
+                    raise TypeError("SentenceTransformer did not return tensor embeddings")
                 for t, e in zip(texts_to_encode, encoded):
                     self.embedding_cache[t] = e
                 emb1 = self.embedding_cache[text1]

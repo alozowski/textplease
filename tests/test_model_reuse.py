@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 from textplease import pipeline
@@ -37,15 +38,22 @@ def test_pipeline_reuses_embedding_model(monkeypatch, tmp_path):
 
 
 def test_transcriber_reuses_whisper_model(monkeypatch):
+    class LoadedModel:
+        config = SimpleNamespace(max_source_positions=1500)
+
+        def to(self, device):
+            return self
+
+        def generate(self, **kwargs):
+            raise AssertionError("Generation should be replaced in this cache test")
+
     processor = object()
-    model = object()
     processor_loader = Mock(return_value=processor)
-    loaded_model = Mock()
-    loaded_model.to.return_value = model
+    loaded_model = LoadedModel()
     model_loader = Mock(return_value=loaded_model)
 
-    monkeypatch.setattr(transformers_pipeline.AutoProcessor, "from_pretrained", processor_loader)
-    monkeypatch.setattr(transformers_pipeline.AutoModelForSpeechSeq2Seq, "from_pretrained", model_loader)
+    monkeypatch.setattr(transformers_pipeline.WhisperProcessor, "from_pretrained", processor_loader)
+    monkeypatch.setattr(transformers_pipeline.WhisperForConditionalGeneration, "from_pretrained", model_loader)
     monkeypatch.setattr(transformers_pipeline, "_load_audio", lambda path: object())
     monkeypatch.setattr(transformers_pipeline, "_transcribe_with_fallbacks", lambda *args: [])
 
