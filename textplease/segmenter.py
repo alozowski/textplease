@@ -41,11 +41,7 @@ class MemoryMonitor:
 
 
 class SimilarityComputer:
-    """Compute semantic similarity between segment texts using cached embeddings.
-
-    All segment texts are pre-encoded in a single batched call before the merge
-    loop begins, making per-pair similarity queries O(1) vector lookups.
-    """
+    """Compute semantic similarity between segment texts using pre-encoded cached embeddings."""
 
     def __init__(self, model: SentenceTransformer, batch_size: int = 32):
         """Initialise with a loaded SentenceTransformer and batch size."""
@@ -291,26 +287,26 @@ def _handle_short_segment(
     max_words: int,
     min_words: int,
     min_chars: int,
-) -> tuple[bool, int]:
-    """Absorb a too-short segment into a neighbour; returns (merged, extra_index_increment)."""
+) -> int:
+    """Absorb a too-short segment into a neighbour; return the extra index increment."""
     text = current["text"].strip()
 
     if merge_segments_if_short(processed, current, max_words, min_words, min_chars):
-        return True, 0
+        return 0
 
     if index + 1 < len(segments):
         nxt = segments[index + 1]
         combined = text + " " + nxt["text"].strip()
         cw = len(combined.split())
-        if len(combined.split()) >= min_words and len(combined) >= min_chars and cw <= max_words:
+        if cw >= min_words and len(combined) >= min_chars and cw <= max_words:
             current["text"] = combined
             current["end_time"] = nxt["end_time"]
             processed.append(current)
-            return True, 1
+            return 1
 
     logger.warning(f"Forcing retention of short segment: '{text[:30]}...'")
     processed.append(current)
-    return False, 0
+    return 0
 
 
 def post_process_segments(
@@ -338,8 +334,7 @@ def post_process_segments(
         char_count = len(text)
 
         if word_count < min_words or char_count < min_chars:
-            _, extra = _handle_short_segment(current, processed, segments, i, max_words, min_words, min_chars)
-            i += extra
+            i += _handle_short_segment(current, processed, segments, i, max_words, min_words, min_chars)
         elif word_count > max_words:
             processed.extend(split_long_segment(current, max_words))
         else:

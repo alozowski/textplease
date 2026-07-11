@@ -13,11 +13,8 @@ from textplease.utils.device_utils import detect_device
 
 logger = logging.getLogger(__name__)
 
-# Ensure required directories exist
 OUTPUT_DIR = Path("output")
 INPUT_DIR = Path("input")
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-INPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def _prepare_input_files(audio_file) -> tuple[Path, Path]:
@@ -32,12 +29,12 @@ def _prepare_input_files(audio_file) -> tuple[Path, Path]:
     if not source_path.exists():
         raise FileNotFoundError(f"Uploaded file not found: {audio_file.name}")
 
+    INPUT_DIR.mkdir(parents=True, exist_ok=True)
     input_path = INPUT_DIR / source_path.name
 
     try:
         shutil.copyfile(audio_file.name, input_path)
-    except Exception as e:
-        logger.error(f"Failed to copy file: {e}")
+    except OSError as e:
         raise IOError(f"Failed to copy audio file: {e}") from e
 
     output_path = OUTPUT_DIR / f"{input_path.stem}_transcript.csv"
@@ -108,11 +105,10 @@ def _execute_and_report(
         logger.error(f"Transcription failed: {e}", exc_info=True)
         return f"❌ Error: {e}", None
     finally:
-        if INPUT_DIR.exists():
-            try:
-                shutil.rmtree(INPUT_DIR, ignore_errors=True)
-            except Exception as e:
-                logger.warning(f"Failed to cleanup input directory: {e}")
+        try:
+            input_path.unlink(missing_ok=True)
+        except OSError as e:
+            logger.warning(f"Could not remove input file {input_path}: {e}")
 
 
 def start_transcription(
@@ -157,8 +153,6 @@ def start_transcription(
         status_msg, output_file = _execute_and_report(config, input_path, output_path)
 
         if output_file:
-            # Success: show download button, enable and check preview checkbox, show preview
-            # Load and display the preview immediately
             try:
                 df = pd.read_csv(output_file, sep="\t")
                 head = df.head(10)
@@ -178,10 +172,10 @@ def start_transcription(
 
             return (
                 status_msg,
-                gr.update(value=output_file, visible=True),  # Show download button
-                gr.update(interactive=True, value=True),  # Enable AND check the checkbox
-                preview_data,  # Show the preview immediately
-                output_file,  # state with transcript path
+                gr.update(value=output_file, visible=True),  # download_button
+                gr.update(interactive=True, value=True),  # show_transcript
+                preview_data,  # csv_preview
+                output_file,  # transcript_state
             )
         else:
             return (
@@ -228,10 +222,7 @@ def show_audio_info(file):
 
 
 def preview_transcript(show: bool, file_path: str | None):
-    r"""Preview transcript file.
-
-    The file is named *.csv but content is tab-separated, so we load with sep="\t".
-    """
+    """Preview the transcript file (tab-separated despite the .csv name)."""
     if not show:
         return gr.update(visible=False)
 
@@ -291,6 +282,8 @@ def update_model_choices(language):
 
 def launch_gradio():
     """Launch the Gradio web interface."""
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
     try:
         best_device = detect_device("cuda")
         logger.info(f"Best available device detected: {best_device}")
@@ -396,7 +389,6 @@ def launch_gradio():
         clear_btn = gr.Button("🧹 Clear Inputs")
         status_text = gr.Textbox(label="Status", value="Waiting...", interactive=False, lines=3)
 
-        # Use DownloadButton for file downloads
         download_button = gr.DownloadButton(
             label="📥 Download Transcript",
             visible=False,
@@ -417,14 +409,12 @@ def launch_gradio():
 
         transcript_state = gr.State(value=None)
 
-        # Update model choices when language changes
         language.change(
             update_model_choices,
             inputs=[language],
             outputs=[model_name],
         )
 
-        # Main transcription event
         run_button.click(
             start_transcription,
             inputs=[
@@ -474,7 +464,6 @@ def launch_gradio():
             ],
         )
 
-        # Preview transcript when checkbox is toggled
         show_transcript.change(
             preview_transcript,
             inputs=[show_transcript, transcript_state],
@@ -482,7 +471,7 @@ def launch_gradio():
         )
 
         download_button.click(
-            lambda file_path: file_path,  # Return the file path from state
+            lambda file_path: file_path,
             inputs=[transcript_state],
             outputs=[download_button],
         )

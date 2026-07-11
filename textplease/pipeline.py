@@ -46,29 +46,18 @@ def save_to_csv(segments: list, output_path: str) -> str:
     if not segments:
         raise ValueError("Cannot save empty segments list")
 
-    if not output_path or not isinstance(output_path, str):
-        raise ValueError(f"Invalid output_path: {output_path}")
+    df = pd.DataFrame(segments)
+    df = df[df["text"].astype(str).str.strip() != ""]
+    if df.empty:
+        raise ValueError("No valid segments to save (all were empty)")
 
-    try:
-        df = pd.DataFrame(segments)
-        df = df[df["text"].astype(str).str.strip() != ""]
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
 
-        if df.empty:
-            raise ValueError("No valid segments to save (all were empty)")
-
-        output_dir = os.path.dirname(output_path)
-        if output_dir:
-            os.makedirs(output_dir, exist_ok=True)
-
-        df.to_csv(output_path, index=False, sep="\t")
-        logger.info(f"Saved {len(df)} segments to {output_path}")
-        return output_path
-
-    except (ValueError, IOError):
-        raise
-    except Exception as e:
-        logger.error(f"Failed to save CSV to {output_path}: {e}")
-        raise IOError(f"Failed to save CSV: {e}") from e
+    df.to_csv(output_path, index=False, sep="\t")
+    logger.info(f"Saved {len(df)} segments to {output_path}")
+    return output_path
 
 
 def estimate_processing_time(num_segments: int) -> str:
