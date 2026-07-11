@@ -145,12 +145,13 @@ This turns off the normal segmentation rules as far as practical. The result is 
 | `input_path` | Required | An existing audio or video file |
 | `output_path` | Required | Replaced if it already exists |
 | `model_name` | Required | The web interface uses `openai/whisper-large-v3` |
-| `device` | `cpu` | Use `cuda` for an NVIDIA GPU or `mps` for Apple Silicon |
+| `device` | `cpu` | Use `auto` for the best available device, `cuda` for NVIDIA, or `mps` for Apple Silicon |
 | `language` | `en` | Language code passed to Whisper |
 | `embedding_model` | `all-MiniLM-L6-v2` | Model used to compare segment meaning |
 | `log_level` | `INFO` | Also accepts `DEBUG`, `WARNING`, and `ERROR` |
 
-The web interface automatically chooses the best available device. It currently offers these languages:
+`auto` prefers CUDA, then MPS, then CPU. An unavailable explicit accelerator uses the same fallback order. The web
+interface automatically chooses the best available device. It currently offers these languages:
 
 - English (`en`), Russian (`ru`), Spanish (`es`), French (`fr`), Italian (`it`)
 - German (`de`), Turkish (`tr`), Chinese (`zh`), Korean (`ko`), Japanese (`ja`)

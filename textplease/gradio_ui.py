@@ -355,7 +355,7 @@ def launch_gradio():
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     try:
-        best_device = detect_device("cuda")
+        best_device = detect_device("auto")
         logger.info(f"Best available device detected: {best_device}")
     except Exception as e:
         logger.warning(f"Device detection failed, defaulting to CPU: {e}")
@@ -382,10 +382,10 @@ def launch_gradio():
         with gr.Accordion("⚙️ Advanced Settings", open=False):
             with gr.Row():
                 device = gr.Dropdown(
-                    choices=["cpu", "cuda", "mps"],
+                    choices=["auto", "cpu", "cuda", "mps"],
                     value=best_device,
                     label="Device",
-                    info="CPU: universal | CUDA: NVIDIA GPU | MPS: Apple Silicon",
+                    info="Auto: best available | CPU: universal | CUDA: NVIDIA GPU | MPS: Apple Silicon",
                 )
                 similarity_threshold = gr.Slider(
                     0.0,
