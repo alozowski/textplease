@@ -30,7 +30,7 @@ textplease --gradio
 ```
 
 Then open your browser and:
-1. Upload your audio/video file (.mp3, .wav, .mp4)
+1. Upload your audio/video file (.mp3, .wav, .mp4, .m4a, .ogg)
 2. Adjust settings if needed (or use the smart defaults)
 3. Click "🚀 Start Transcription"
 4. Download your transcript when complete!

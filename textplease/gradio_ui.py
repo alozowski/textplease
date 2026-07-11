@@ -304,8 +304,8 @@ def launch_gradio():
 
         with gr.Row():
             audio_input = gr.File(
-                label="Upload Audio (.mp3/.wav/.mp4)",
-                file_types=[".mp3", ".wav", ".mp4"],
+                label="Upload Audio (.mp3/.wav/.mp4/.m4a/.ogg)",
+                file_types=[".mp3", ".wav", ".mp4", ".m4a", ".ogg"],
             )
             audio_preview = gr.Audio(label="Audio Preview", interactive=False)
 
