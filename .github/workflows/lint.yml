@@ -4,11 +4,17 @@ on:
   push:
     paths:
       - "textplease/**"
+      - "tests/**"
+      - ".github/workflows/lint.yml"
       - "pyproject.toml"
+      - "uv.lock"
   pull_request:
     paths:
       - "textplease/**"
+      - "tests/**"
+      - ".github/workflows/lint.yml"
       - "pyproject.toml"
+      - "uv.lock"
   workflow_dispatch:
 
 concurrency:
@@ -21,13 +27,13 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v4
 
-      - name: Ruff check
-        uses: astral-sh/ruff-action@0ce1b0bf8b818ef400413f810f8a11cdbda0034b  # v4.0.0
+      - name: Install uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b  # v8.1.0
         with:
-          version: "0.12.0"
+          python-version: "3.12"
+
+      - name: Ruff check
+        run: uv run --isolated --locked --only-group dev ruff check .
 
       - name: Ruff format
-        uses: astral-sh/ruff-action@0ce1b0bf8b818ef400413f810f8a11cdbda0034b  # v4.0.0
-        with:
-          version: "0.12.0"
-          args: "format --check"
+        run: uv run --isolated --locked --only-group dev ruff format --check .
