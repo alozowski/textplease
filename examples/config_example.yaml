@@ -2,12 +2,10 @@
 input_path: "examples/LJSpeech-001.mp3"
 output_path: "examples/LJSpeech-001_transcript.csv"
 
-# ASR model — two backends supported:
-#   Whisper (multilingual): "openai/whisper-large-v3"
-#   NeMo (English only):    "nvidia/parakeet-ctc-1.1b"
+# ASR model — multilingual Whisper: "openai/whisper-large-v3"
 model_name: "openai/whisper-large-v3"
 device: "cpu"   # "cuda" for NVIDIA GPU, "mps" for Apple Silicon
-language: "en"  # language code; Whisper only (97+ languages supported)
+language: "en"  # language code (97+ languages supported)
 
 # Segmentation
 similarity_threshold: 0.75  # [0.0–1.0] cosine similarity required to merge two segments
@@ -18,10 +16,6 @@ max_segment_words: 100      # segments above this are split regardless of other 
 
 # Embedding model used for semantic similarity (segmentation step)
 embedding_model: "all-MiniLM-L6-v2"
-
-# NeMo-only settings (Whisper ignores these)
-chunk_duration_minutes: 10  # audio chunk size fed to NeMo; lower if you hit memory errors
-max_batch_size: 1           # NeMo inference batch size
 
 # Performance
 performance:

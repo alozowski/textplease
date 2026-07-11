@@ -16,6 +16,20 @@ logger = logging.getLogger(__name__)
 OUTPUT_DIR = Path("output")
 INPUT_DIR = Path("input")
 
+LANGUAGE_CHOICES = [
+    ("English", "en"),
+    ("Russian", "ru"),
+    ("Spanish", "es"),
+    ("French", "fr"),
+    ("Italian", "it"),
+    ("German", "de"),
+    ("Turkish", "tr"),
+    ("Chinese", "zh"),
+    ("Korean", "ko"),
+    ("Japanese", "ja"),
+    ("Indonesian", "id"),
+]
+
 
 def _prepare_input_files(audio_file) -> tuple[Path, Path]:
     """Prepare input files for transcription."""
@@ -44,8 +58,6 @@ def _prepare_input_files(audio_file) -> tuple[Path, Path]:
 def _create_transcription_config(
     input_path: Path,
     output_path: Path,
-    chunk_duration_minutes: float,
-    max_batch_size: int,
     similarity_threshold: float,
     pause_threshold: float,
     max_segment_words: int,
@@ -61,8 +73,6 @@ def _create_transcription_config(
         "output_path": str(output_path),
         "model_name": model_name,
         "device": device,
-        "chunk_duration_minutes": chunk_duration_minutes,
-        "max_batch_size": max_batch_size,
         "similarity_threshold": similarity_threshold,
         "pause_threshold": pause_threshold,
         "max_segment_words": max_segment_words,
@@ -113,8 +123,6 @@ def _execute_and_report(
 
 def start_transcription(
     audio_file,
-    chunk_duration_minutes,
-    max_batch_size,
     similarity_threshold,
     pause_threshold,
     max_segment_words,
@@ -139,8 +147,6 @@ def start_transcription(
         config = _create_transcription_config(
             input_path,
             output_path,
-            chunk_duration_minutes,
-            max_batch_size,
             similarity_threshold,
             pause_threshold,
             max_segment_words,
@@ -265,21 +271,6 @@ def preview_transcript(show: bool, file_path: str | None):
         )
 
 
-def update_model_choices(language):
-    """Update available models based on selected language."""
-    if language == "en":
-        choices = [
-            "openai/whisper-large-v3",
-            "nvidia/parakeet-ctc-1.1b",
-        ]
-        value = "openai/whisper-large-v3"
-    else:
-        choices = ["openai/whisper-large-v3"]
-        value = "openai/whisper-large-v3"
-
-    return gr.update(choices=choices, value=value)
-
-
 def launch_gradio():
     """Launch the Gradio web interface."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -309,16 +300,16 @@ def launch_gradio():
         gr.Markdown("### Settings")
         with gr.Row():
             language = gr.Dropdown(
-                choices=["en", "ru"],
+                choices=LANGUAGE_CHOICES,
                 value="en",
                 label="Language",
                 info="Select transcription language",
             )
             model_name = gr.Dropdown(
-                choices=["openai/whisper-large-v3", "nvidia/parakeet-ctc-1.1b"],
+                choices=["openai/whisper-large-v3"],
                 value="openai/whisper-large-v3",
                 label="Model",
-                info="Whisper: Multi-language | NeMo (Parakeet): English only",
+                info="Multilingual Whisper model",
             )
             device = gr.Dropdown(
                 choices=["cpu", "cuda", "mps"],
@@ -328,22 +319,6 @@ def launch_gradio():
             )
 
         with gr.Accordion("⚙️ Advanced Settings", open=False):
-            chunk_duration_minutes = gr.Slider(
-                1,
-                60,
-                value=10,
-                step=1,
-                label="Chunk Duration (minutes)",
-                info="NeMo (Parakeet) only — maximum audio chunk size. Whisper uses VAD-based segmentation and ignores this setting.",
-            )
-            max_batch_size = gr.Slider(
-                1,
-                10,
-                value=1,
-                step=1,
-                label="Max Batch Size",
-                info="NeMo (Parakeet) only — batch size for ASR inference. Whisper uses model.generate() and ignores this setting.",
-            )
             similarity_threshold = gr.Slider(
                 0.0,
                 1.0,
@@ -409,18 +384,10 @@ def launch_gradio():
 
         transcript_state = gr.State(value=None)
 
-        language.change(
-            update_model_choices,
-            inputs=[language],
-            outputs=[model_name],
-        )
-
         run_button.click(
             start_transcription,
             inputs=[
                 audio_input,
-                chunk_duration_minutes,
-                max_batch_size,
                 similarity_threshold,
                 pause_threshold,
                 max_segment_words,

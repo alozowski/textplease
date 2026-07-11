@@ -98,8 +98,6 @@ def _extract_config_params(config: dict) -> dict:
         "output_path": config["output_path"],
         "model_name": config["model_name"],
         "device": config.get("device", "cpu"),
-        "batch_size": config.get("max_batch_size", 1),
-        "chunk_duration": config.get("chunk_duration_minutes", 10),
         "pause_threshold": config.get("pause_threshold", 2.0),
         "similarity_threshold": config.get("similarity_threshold", 0.75),
         "embedding_model_name": config.get("embedding_model", DEFAULT_EMBEDDING_MODEL),
@@ -152,9 +150,7 @@ def _execute_transcription_stage(params: dict, audio_path: str) -> list[dict]:
         audio_path,
         params["model_name"],
         params["device"],
-        params["chunk_duration"],
-        params["pause_threshold"],
-        batch_size=params["batch_size"],
+        pause_threshold=params["pause_threshold"],
         language=params["language"],
     )
     logger.info(f"Transcription: {len(segments)} segments in {time.time() - t0:.2f}s")
@@ -231,10 +227,7 @@ def run_transcription_pipeline(config: dict) -> None:
     params = _extract_config_params(config)
 
     logger.info(f"Input: {params['input_path']} → Output: {params['output_path']}")
-    logger.info(
-        f"ASR: {params['model_name']} | Device: {params['device']} | "
-        f"Chunk: {params['chunk_duration']}min | Pause: {params['pause_threshold']}s"
-    )
+    logger.info(f"ASR: {params['model_name']} | Device: {params['device']} | Pause: {params['pause_threshold']}s")
     logger.info(
         f"Embedding: {params['embedding_model_name']} | Similarity threshold: {params['similarity_threshold']}"
     )
