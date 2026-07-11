@@ -3,6 +3,7 @@ import re
 import time
 import logging
 from pathlib import Path
+from functools import lru_cache
 
 import pandas as pd
 from sentence_transformers import SentenceTransformer
@@ -108,6 +109,12 @@ def _extract_config_params(config: dict) -> dict:
         "similarity_batch_size": config.get("performance", {}).get("similarity_batch_size", 32),
         "chunk_size": config.get("performance", {}).get("chunk_size", 1000),
     }
+
+
+@lru_cache(maxsize=1)
+def _load_embedding_model(model_name: str, device: str) -> SentenceTransformer:
+    logger.info(f"Loading SentenceTransformer '{model_name}' on: {device}")
+    return SentenceTransformer(model_name, device=device)
 
 
 def _filter_hallucinations(segments: list[dict]) -> list[dict]:
@@ -233,8 +240,7 @@ def run_transcription_pipeline(config: dict) -> None:
     embedding_model = None
     if len(segments) > 1 and params["similarity_threshold"] < 1.0:
         t0 = time.time()
-        logger.info(f"Loading SentenceTransformer '{params['embedding_model_name']}' on: {params['device']}")
-        embedding_model = SentenceTransformer(params["embedding_model_name"], device=params["device"])
+        embedding_model = _load_embedding_model(params["embedding_model_name"], params["device"])
         logger.info(f"SentenceTransformer loaded in {time.time() - t0:.2f}s")
 
     coherent = _execute_segmentation_stage(segments, params, embedding_model)

@@ -5,6 +5,7 @@ import re
 import logging
 import warnings
 from typing import Any
+from functools import lru_cache
 
 import numpy as np
 import torch
@@ -24,6 +25,7 @@ warnings.filterwarnings("ignore", message=".*Whisper did not predict an ending t
 warnings.filterwarnings("ignore", message=".*attention mask is not set.*")
 
 
+@lru_cache(maxsize=1)
 def _load_model_and_processor(model_name: str, device: str) -> tuple[Any, Any]:
     """Load Whisper model and processor."""
     logger.info(f"Loading Transformers model '{model_name}' on device: {device}")
@@ -214,20 +216,16 @@ def transcribe(
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    model = None
-    processor = None
     try:
         model, processor = _load_model_and_processor(model_name, device)
         audio_array = _load_audio(audio_path)
         return _transcribe_with_fallbacks(model, processor, audio_array, device, language, pause_threshold)
-    finally:
-        if model is not None:
-            del model
-        if processor is not None:
-            del processor
+    except Exception:
+        _load_model_and_processor.cache_clear()
         gc.collect()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
+        raise
 
 
 def _fallback_sentence_segmentation(
