@@ -61,6 +61,7 @@ def test_pipeline_uses_resolved_device(monkeypatch, tmp_path):
     )
 
     assert transcribe_audio.call_args.args[2] == "cuda"
+    assert transcribe_audio.call_args.kwargs["batch_size"] == 4
     assert sentence_transformer.call_args.kwargs["device"] == "cuda"
     assert segment_transcript.call_args.kwargs["preferred_device"] == "cuda"
     assert [entry[0] for entry in calls.mock_calls] == ["transcription", "embedding"]

@@ -57,6 +57,7 @@ textplease runs a modular pipeline:
 2. ASR transcription – converts speech to text with multilingual Whisper models.
    - Language is selectable (97+ languages).
    - Silero-VAD removes silence before transcription, cutting hallucinations at the source.
+   - Whisper batches VAD chunks on CUDA while retaining the same generation and timestamp settings.
    - Whisper runs via `model.generate()` with temperature fallback and compression-ratio quality gating.
    - A post-transcription filter removes known Whisper hallucination phrases.
    - Deduplication removes residual word overlap at chunk boundaries.

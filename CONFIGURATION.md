@@ -165,9 +165,14 @@ Most users can leave these alone.
 
 ```yaml
 performance:
+  whisper_batch_size: 4
   similarity_batch_size: 32
   chunk_size: 1000
 ```
+
+`whisper_batch_size` controls how many VAD speech chunks Whisper transcribes together. The default is `4` on CUDA and
+`1` on CPU or MPS. Lower it if Whisper runs out of accelerator memory; a failed batch automatically retries one chunk
+at a time.
 
 `similarity_batch_size` controls how many text embeddings are created at once. Lower it if the embedding step runs out of memory.
 
@@ -220,6 +225,7 @@ Short fragments get an extra cleanup pass. They may be joined without passing th
 | Too many breaks | Raise `pause_threshold` or lower `similarity_threshold` |
 | Unrelated sentences are joined | Raise `similarity_threshold` to about `0.85` |
 | Short replies disappear into nearby text | Set both minimums to `1` |
+| Whisper runs out of memory | Lower `performance.whisper_batch_size` |
 | Embedding runs out of memory | Lower `performance.similarity_batch_size` |
 | GPU transcription runs out of memory | Use `device: "cpu"` or a smaller compatible Whisper model |
 

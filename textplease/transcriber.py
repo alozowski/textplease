@@ -13,6 +13,7 @@ def transcribe_audio(
     device: str,
     pause_threshold: float = 2.0,
     language: str | None = None,
+    batch_size: int = 1,
 ) -> list[dict]:
     """Transcribe audio with a Whisper model."""
     audio_file = Path(audio_path)
@@ -28,4 +29,5 @@ def transcribe_audio(
         device=device,
         pause_threshold=pause_threshold,
         language=language or "en",
+        batch_size=batch_size,
     )
