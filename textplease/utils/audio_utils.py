@@ -1,5 +1,6 @@
 import os
 import logging
+import tempfile
 from pathlib import Path
 
 import ffmpeg
@@ -12,7 +13,7 @@ TARGET_SAMPLE_RATE = 16000
 TARGET_CHANNELS = 1
 
 
-def extract_audio(input_path: str) -> str:
+def extract_audio(input_path: str, temporary_directory: str | Path) -> str:
     """Convert audio or video to mono 16kHz WAV, returning the compliant file's path."""
     input_file = Path(input_path)
     if not input_file.exists():
@@ -20,7 +21,7 @@ def extract_audio(input_path: str) -> str:
     if not input_file.is_file():
         raise ValueError(f"Input path is not a file: {input_path}")
 
-    base, ext = os.path.splitext(input_path)
+    _, ext = os.path.splitext(input_path)
     if ext.lower() == ".wav":
         try:
             info = ffmpeg.probe(input_path)
@@ -44,7 +45,15 @@ def extract_audio(input_path: str) -> str:
     else:
         logger.info(f"Input file '{input_path}' is not a WAV. Converting to mono 16kHz WAV.")
 
-    return _convert_to_mono_wav(input_path, f"{base}_processed.wav")
+    temporary_path = Path(temporary_directory)
+    temporary_path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor, output_path = tempfile.mkstemp(prefix="audio-", suffix=".wav", dir=temporary_path)
+    os.close(descriptor)
+    try:
+        return _convert_to_mono_wav(input_path, output_path)
+    except (OSError, RuntimeError):
+        Path(output_path).unlink(missing_ok=True)
+        raise
 
 
 def _convert_to_mono_wav(input_path: str, output_path: str) -> str:
@@ -64,8 +73,3 @@ def _convert_to_mono_wav(input_path: str, output_path: str) -> str:
 
     logger.info(f"Audio successfully converted: {output_path}")
     return output_path
-
-
-def cleanup_temp(original_path: str, extracted_path: str) -> bool:
-    """Return True if the extracted audio is a newly created file safe to delete."""
-    return os.path.abspath(original_path) != os.path.abspath(extracted_path)

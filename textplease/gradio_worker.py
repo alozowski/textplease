@@ -1,5 +1,7 @@
 import logging
+import tempfile
 import multiprocessing
+from pathlib import Path
 from threading import RLock
 from collections.abc import Callable
 from multiprocessing.connection import Connection
@@ -55,6 +57,7 @@ class PersistentPipelineWorker:
         self._current_job_id: int | None = None
         self._next_job_id = 1
         self._results: dict[int, str | None] = {}
+        self._temporary_directories: dict[int, tempfile.TemporaryDirectory[str]] = {}
         self._model_key: tuple[str, str, str] | None = None
         self._last_exitcode: int | None = None
 
@@ -96,11 +99,20 @@ class PersistentPipelineWorker:
 
             job_id = self._next_job_id
             self._next_job_id += 1
-            self._current_job_id = job_id
-            self._model_key = model_key
             if self._command_connection is None:
                 raise RuntimeError("Worker command connection is unavailable")
-            self._command_connection.send((job_id, config, log_path))
+            output_parent = Path(config["output_path"]).resolve().parent
+            output_parent.mkdir(parents=True, exist_ok=True)
+            temporary_directory = tempfile.TemporaryDirectory(prefix=".textplease-", dir=output_parent)
+            job_config = {**config, "_temporary_directory": Path(temporary_directory.name)}
+            self._temporary_directories[job_id] = temporary_directory
+            try:
+                self._command_connection.send((job_id, job_config, log_path))
+            except (BrokenPipeError, OSError):
+                self._temporary_directories.pop(job_id).cleanup()
+                raise
+            self._current_job_id = job_id
+            self._model_key = model_key
             return job_id
 
     def result(self, job_id: int) -> tuple[bool, str | None]:
@@ -125,6 +137,7 @@ class PersistentPipelineWorker:
     def _result(self, job_id: int) -> tuple[bool, str | None]:
         self._drain_results()
         if job_id in self._results:
+            self._cleanup_job(job_id)
             return True, self._results[job_id]
         if job_id != self._current_job_id:
             return True, "Unknown transcription job"
@@ -132,6 +145,7 @@ class PersistentPipelineWorker:
             exitcode = self.exitcode
             error = f"Worker exited with code {exitcode}"
             self._results[job_id] = error
+            self._cleanup_job(job_id)
             return True, error
         return False, None
 
@@ -144,6 +158,11 @@ class PersistentPipelineWorker:
                 self._results[job_id] = error
         except (EOFError, OSError):
             return
+
+    def _cleanup_job(self, job_id: int) -> None:
+        temporary_directory = self._temporary_directories.pop(job_id, None)
+        if temporary_directory is not None:
+            temporary_directory.cleanup()
 
     def _start_worker(self) -> None:
         child_commands, parent_commands = self._context.Pipe(duplex=False)
@@ -177,6 +196,8 @@ class PersistentPipelineWorker:
         self._last_exitcode = self._process.exitcode
         if self._current_job_id is not None and self._current_job_id not in self._results:
             self._results[self._current_job_id] = f"Worker exited with code {self._last_exitcode}"
+        if self._current_job_id is not None:
+            self._cleanup_job(self._current_job_id)
         self._process.close()
         self._process = None
         if self._command_connection is not None:
