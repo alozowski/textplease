@@ -15,17 +15,28 @@
 
 ### Installation
 
+Install these prerequisites:
+
+- [Python 3.12](https://www.python.org/downloads/)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- FFmpeg, with its `ffmpeg` executable available on `PATH`:
+
+  - macOS with Homebrew: `brew install ffmpeg`
+  - Ubuntu or Debian: `sudo apt install ffmpeg`
+  - Windows: install a build from the [official FFmpeg download page](https://ffmpeg.org/download.html) and add its `bin` directory to `PATH`
+
+Verify the native dependency with `ffmpeg -version`, then install `textplease`:
+
 ```bash
 git clone https://github.com/alozowski/textplease.git
 cd textplease
-uv sync
-source .venv/bin/activate
+uv sync --locked --no-dev
 ```
 
 ### Web interface
 
 ```bash
-textplease --gradio
+uv run --locked --no-dev textplease --gradio
 ```
 
 Then, in your browser:
@@ -41,10 +52,10 @@ The config file is created automatically.
 
 ```bash
 # Use the example config
-textplease --config examples/config_example.yaml
+uv run --locked --no-dev textplease --config examples/config_example.yaml
 
 # Or your own
-textplease --config my_config.yaml
+uv run --locked --no-dev textplease --config my_config.yaml
 ```
 
 The transcript is written to the `output_path` set in the config. For the example config, that is `examples/LJSpeech-001_transcript.csv`.

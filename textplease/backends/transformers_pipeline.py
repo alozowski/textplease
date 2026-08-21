@@ -9,15 +9,16 @@ from functools import lru_cache
 
 import numpy as np
 import torch
-import torchaudio
+from silero_vad import load_silero_vad, get_speech_timestamps
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
 
 from textplease.utils.time_utils import format_time_precise as format_time
+from textplease.utils.audio_utils import TARGET_SAMPLE_RATE, load_pcm_wav
 
 
 logger = logging.getLogger(__name__)
 
-SAMPLE_RATE = 16000
+SAMPLE_RATE = TARGET_SAMPLE_RATE
 # Padding (seconds) added around each VAD speech boundary to avoid clipping words.
 _SPEECH_PAD_S = 0.1
 
@@ -49,23 +50,11 @@ def _load_model_and_processor(
     return model, processor
 
 
-def _load_audio(audio_path: str) -> np.ndarray:
-    """Load audio file and return a mono 16 kHz numpy array."""
-    waveform, sample_rate = torchaudio.load(audio_path)
-    if waveform.shape[0] > 1:
-        waveform = torch.mean(waveform, dim=0, keepdim=True)
-    if sample_rate != SAMPLE_RATE:
-        waveform = torchaudio.transforms.Resample(sample_rate, SAMPLE_RATE)(waveform)
-    return waveform.squeeze(0).numpy()
-
-
 def _get_speech_segments(
     audio_array: np.ndarray,
     pause_threshold: float,
 ) -> list[dict[str, float]]:
     """Run Silero-VAD and return speech segment boundaries in seconds."""
-    from silero_vad import load_silero_vad, get_speech_timestamps
-
     vad_model = load_silero_vad()
     audio_tensor = torch.from_numpy(audio_array)
 
@@ -274,23 +263,20 @@ def _transcribe_with_fallbacks(
     batch_size: int = 1,
 ) -> list[dict[str, str]]:
     """VAD + model.generate() with fallback to sentence splitting."""
-    try:
-        offsets = _transcribe_long_form(
-            model,
-            processor,
-            audio_array,
-            device,
-            language,
-            pause_threshold,
-            batch_size,
-        )
-        segments = _offsets_to_segments(offsets)
-        if segments:
-            logger.info(f"Generated {len(segments)} segments via VAD + model.generate()")
-            return segments
-        logger.warning("VAD + model.generate() returned no segments; falling back to sentence splitting")
-    except Exception as e:
-        logger.warning(f"VAD + model.generate() failed ({e}); falling back to sentence splitting")
+    offsets = _transcribe_long_form(
+        model,
+        processor,
+        audio_array,
+        device,
+        language,
+        pause_threshold,
+        batch_size,
+    )
+    segments = _offsets_to_segments(offsets)
+    if segments:
+        logger.info(f"Generated {len(segments)} segments via VAD + model.generate()")
+        return segments
+    logger.warning("VAD + model.generate() returned no segments; falling back to sentence splitting")
 
     return _fallback_sentence_segmentation(model, processor, audio_array, device, language, batch_size)
 
@@ -303,32 +289,25 @@ def transcribe(
     language: str = "en",
     batch_size: int = 1,
 ) -> list[dict[str, str]]:
-    """Transcribe audio using Silero-VAD + Whisper model.generate()."""
+    """Transcribe a normalized mono 16 kHz PCM16 WAV."""
     if batch_size < 1:
         raise ValueError("Whisper batch size must be positive")
 
+    audio_array = load_pcm_wav(audio_path)
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
-    try:
-        model, processor = _load_model_and_processor(model_name, device)
-        audio_array = _load_audio(audio_path)
-        return _transcribe_with_fallbacks(
-            model,
-            processor,
-            audio_array,
-            device,
-            language,
-            pause_threshold,
-            batch_size,
-        )
-    except Exception:
-        _load_model_and_processor.cache_clear()
-        gc.collect()
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-        raise
+    model, processor = _load_model_and_processor(model_name, device)
+    return _transcribe_with_fallbacks(
+        model,
+        processor,
+        audio_array,
+        device,
+        language,
+        pause_threshold,
+        batch_size,
+    )
 
 
 def _fallback_sentence_segmentation(

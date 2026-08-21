@@ -65,7 +65,7 @@ def _run_transcription(monkeypatch, batch_size, *, fail_batched=False):
     processor = FakeProcessor()
 
     monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args: (model, processor))
-    monkeypatch.setattr(transformers_pipeline, "_load_audio", lambda path: audio)
+    monkeypatch.setattr(transformers_pipeline, "load_pcm_wav", lambda path: audio)
     monkeypatch.setattr(transformers_pipeline, "_get_speech_segments", lambda *args: speech_segments)
     monkeypatch.setattr(transformers_pipeline.torch.cuda, "is_available", lambda: False)
 

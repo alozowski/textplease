@@ -1,6 +1,7 @@
 import logging
 from pathlib import Path
 
+from textplease.utils.audio_utils import normalize_audio
 from textplease.backends.transformers_pipeline import transcribe as whisper_transcribe
 
 
@@ -14,8 +15,10 @@ def transcribe_audio(
     pause_threshold: float = 2.0,
     language: str | None = None,
     batch_size: int = 1,
+    *,
+    temporary_directory: str | Path,
 ) -> list[dict]:
-    """Transcribe audio with a Whisper model."""
+    """Normalize local media for the built-in Whisper runtime and transcribe it."""
     audio_file = Path(audio_path)
     if not audio_file.exists():
         raise FileNotFoundError(f"Audio file not found: {audio_path}")
@@ -23,8 +26,9 @@ def transcribe_audio(
         raise ValueError(f"Audio path is not a file: {audio_path}")
 
     logger.info(f"Transcribing with model: {model_name}")
+    normalized_audio_path = normalize_audio(audio_path, temporary_directory)
     return whisper_transcribe(
-        audio_path=audio_path,
+        audio_path=normalized_audio_path,
         model_name=model_name,
         device=device,
         pause_threshold=pause_threshold,

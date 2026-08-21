@@ -16,7 +16,6 @@ def test_pipeline_reuses_embedding_model(monkeypatch, tmp_path):
         {"start_time": "00:00:02.000", "end_time": "00:00:03.000", "text": "Second test segment."},
     ]
 
-    monkeypatch.setattr(pipeline, "extract_audio", lambda path, temporary_directory: path)
     monkeypatch.setattr(pipeline, "transcribe_audio", lambda *args, **kwargs: segments)
     monkeypatch.setattr(pipeline, "SentenceTransformer", sentence_transformer)
     monkeypatch.setattr(pipeline, "segment_transcript", lambda transcript, **kwargs: transcript)
@@ -53,7 +52,7 @@ def test_transcriber_reuses_whisper_model(monkeypatch):
 
     monkeypatch.setattr(transformers_pipeline.WhisperProcessor, "from_pretrained", processor_loader)
     monkeypatch.setattr(transformers_pipeline.WhisperForConditionalGeneration, "from_pretrained", model_loader)
-    monkeypatch.setattr(transformers_pipeline, "_load_audio", lambda path: object())
+    monkeypatch.setattr(transformers_pipeline, "load_pcm_wav", lambda path: object())
     monkeypatch.setattr(transformers_pipeline, "_transcribe_with_fallbacks", lambda *args: [])
 
     transformers_pipeline._load_model_and_processor.cache_clear()
