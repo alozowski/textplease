@@ -1,4 +1,5 @@
 import csv
+import logging
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -136,3 +137,17 @@ def test_atomic_save_failure_preserves_existing_output(monkeypatch, tmp_path):
 
     assert output_path.read_text() == "existing transcript"
     assert not (temporary_directory / "transcript.tsv").exists()
+
+
+def test_short_segment_log_does_not_include_transcript(caplog):
+    private_text = "My private account recovery phrase"
+
+    with caplog.at_level(logging.WARNING):
+        segmenter.post_process_segments(
+            [{"start_time": "00:00:00.000", "end_time": "00:00:01.000", "text": private_text}],
+            min_words=10,
+            min_chars=100,
+        )
+
+    assert "Keeping a short segment that cannot be merged" in caplog.text
+    assert private_text not in caplog.text

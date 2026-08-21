@@ -25,9 +25,3 @@ performance:
 
 # Logging
 log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR
-
-# Optional environment variable overrides
-environment:
-  PYTORCH_MPS_HIGH_WATERMARK_RATIO: "0.0"  # prevent MPS from hoarding memory on Apple Silicon
-  OMP_NUM_THREADS: "8"
-  TOKENIZERS_PARALLELISM: "false"

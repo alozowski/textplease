@@ -307,7 +307,7 @@ def _handle_short_segment(
             processed.append(current)
             return 1
 
-    logger.warning(f"Forcing retention of short segment: '{text[:30]}...'")
+    logger.warning("Keeping a short segment that cannot be merged")
     processed.append(current)
     return 0
 
@@ -374,7 +374,7 @@ def segment_transcript(
     if len(segments) > 1 and similarity_threshold < 1.0:
         if model is None:
             device = detect_device(preferred_device)
-            model = SentenceTransformer(embedding_model_name, device=device)
+            model = SentenceTransformer(embedding_model_name, device=device, local_files_only=True)
         similarity_computer = SimilarityComputer(model, batch_size)
         similarity_computer.precompute_embeddings([seg["text"] for seg in segments])
 

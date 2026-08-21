@@ -145,7 +145,7 @@ This turns off the normal segmentation rules as far as practical. The result is 
 |---------|---------|-------|
 | `input_path` | Required | An existing audio or video file |
 | `output_path` | Required | Replaced if it already exists |
-| `model_name` | Required | The web interface uses `openai/whisper-large-v3` |
+| `model_name` | Required | A prefetched Hugging Face model ID or local directory; the web interface uses `openai/whisper-large-v3` |
 | `device` | `cpu` | Use `auto` for the best available device, `cuda` for NVIDIA, or `mps` for Apple Silicon |
 | `language` | `en` | Language code passed to Whisper |
 | `embedding_model` | `all-MiniLM-L6-v2` | Model used to compare segment meaning |
@@ -184,16 +184,9 @@ starts a fresh worker.
 
 ## Environment variables
 
-You can set environment variables from the YAML file:
-
-```yaml
-environment:
-  PYTORCH_MPS_HIGH_WATERMARK_RATIO: "0.0"
-  OMP_NUM_THREADS: "8"
-  TOKENIZERS_PARALLELISM: "false"
-```
-
-This section is optional. If a variable is already set in your shell, the shell value wins.
+Configuration files do not change the process environment. Set required environment variables in your shell or
+operating system before starting `textplease`; this keeps credentials and machine-specific settings out of saved YAML
+files and logs.
 
 ## What the web interface exposes
 
@@ -203,7 +196,7 @@ The web interface lets you change:
 - pause and similarity thresholds
 - minimum words, minimum characters, and maximum words
 
-It chooses the input and output paths for you and uses the default Whisper and embedding models. Performance, logging, and environment settings are available only in a CLI YAML file.
+It chooses the input and output paths for you and uses the default Whisper and embedding models. Performance and logging settings are available only in a CLI YAML file.
 
 ## How merging works
 
@@ -228,6 +221,7 @@ Short fragments get an extra cleanup pass. They may be joined without passing th
 | Whisper runs out of memory | Lower `performance.whisper_batch_size` |
 | Embedding runs out of memory | Lower `performance.similarity_batch_size` |
 | GPU transcription runs out of memory | Use `device: "cpu"` or a smaller compatible Whisper model |
+| A model is unavailable locally | Prefetch its model ID as described in the README, then run again |
 
 ## A note about CLI values
 

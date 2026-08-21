@@ -320,14 +320,14 @@ def launch_gradio():
     """Launch the Gradio web interface."""
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    try:
-        best_device = detect_device("auto")
-        logger.info(f"Best available device detected: {best_device}")
-    except Exception as e:
-        logger.warning(f"Device detection failed, defaulting to CPU: {e}")
-        best_device = "cpu"
+    best_device = detect_device("auto")
+    logger.info(f"Best available device detected: {best_device}")
 
-    with gr.Blocks(title="textplease transcriber") as demo:
+    with gr.Blocks(
+        title="textplease transcriber",
+        analytics_enabled=False,
+        delete_cache=(3600, 86400),
+    ) as demo:
         gr.Markdown("# 🎙️ text, please!")
         gr.Markdown("Upload an audio file and receive a structured transcript 📝")
 
@@ -532,7 +532,12 @@ def launch_gradio():
         demo.load(None, js=_TOOLTIP_JS)
 
     try:
-        demo.launch(theme=gr.themes.Base())
+        demo.launch(
+            theme=gr.themes.Base(),
+            share=False,
+            server_name="127.0.0.1",
+            enable_monitoring=False,
+        )
     finally:
         PIPELINE_WORKER.shutdown()
 

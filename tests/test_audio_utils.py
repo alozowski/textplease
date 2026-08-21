@@ -1,5 +1,6 @@
 import wave
 import shutil
+import socket
 import subprocess
 from pathlib import Path
 from unittest.mock import Mock
@@ -186,6 +187,30 @@ def test_empty_pcm_is_rejected_before_model_loading(monkeypatch, tmp_path):
         transformers_pipeline.transcribe(str(audio_path), "test-model", "cpu")
 
     model_loader.assert_not_called()
+
+
+def test_missing_whisper_model_fails_without_network(monkeypatch, tmp_path):
+    audio_path = tmp_path / "audio.wav"
+    with wave.open(str(audio_path), "wb") as audio_file:
+        audio_file.setnchannels(1)
+        audio_file.setsampwidth(2)
+        audio_file.setframerate(16000)
+        audio_file.writeframes(b"\0\0")
+
+    connect = Mock(side_effect=AssertionError("Model loading attempted a network connection"))
+    monkeypatch.setattr(socket.socket, "connect", connect)
+    transformers_pipeline._load_model_and_processor.cache_clear()
+    try:
+        with pytest.raises(OSError):
+            transformers_pipeline.transcribe(
+                str(audio_path),
+                "textplease/model-that-is-not-cached",
+                "cpu",
+            )
+    finally:
+        transformers_pipeline._load_model_and_processor.cache_clear()
+
+    connect.assert_not_called()
 
 
 def test_missing_file_raises(tmp_path):
