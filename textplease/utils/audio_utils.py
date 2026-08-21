@@ -1,75 +1,101 @@
-import os
-import logging
+import wave
+import shutil
 import tempfile
+import subprocess
 from pathlib import Path
 
-import ffmpeg
+import numpy as np
 
 
-logger = logging.getLogger(__name__)
-
-# Target audio format for ASR models
 TARGET_SAMPLE_RATE = 16000
 TARGET_CHANNELS = 1
+TARGET_SAMPLE_WIDTH = 2
+FFMPEG_INSTALL_ERROR = (
+    "FFmpeg is required to process audio. Install it from https://ffmpeg.org/download.html "
+    "and ensure the ffmpeg executable is on PATH."
+)
 
 
-def extract_audio(input_path: str, temporary_directory: str | Path) -> str:
-    """Convert audio or video to mono 16kHz WAV, returning the compliant file's path."""
+def normalize_audio(input_path: str, temporary_directory: str | Path) -> str:
+    """Normalize the first audio stream to a private mono 16 kHz PCM16 WAV."""
     input_file = Path(input_path)
     if not input_file.exists():
         raise FileNotFoundError(f"Input file does not exist: {input_path}")
     if not input_file.is_file():
         raise ValueError(f"Input path is not a file: {input_path}")
 
-    _, ext = os.path.splitext(input_path)
-    if ext.lower() == ".wav":
-        try:
-            info = ffmpeg.probe(input_path)
-            audio_stream = next((s for s in info["streams"] if s["codec_type"] == "audio"), None)
-            if not audio_stream:
-                raise ValueError(f"No audio stream found in file: {input_path}")
+    ffmpeg_executable = shutil.which("ffmpeg")
+    if ffmpeg_executable is None:
+        raise RuntimeError(FFMPEG_INSTALL_ERROR)
 
-            channels = int(audio_stream.get("channels", 0))
-            sample_rate = int(audio_stream.get("sample_rate", 0))
-            if channels == TARGET_CHANNELS and sample_rate == TARGET_SAMPLE_RATE:
-                logger.info("Input WAV is already mono 16kHz. Skipping re-encoding.")
-                return input_path
+    work_directory = Path(temporary_directory)
+    work_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(prefix="audio-", suffix=".wav", dir=work_directory, delete=False) as output_file:
+        output_path = Path(output_file.name)
+    conversion = subprocess.run(
+        [
+            ffmpeg_executable,
+            "-nostdin",
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-i",
+            str(input_file),
+            "-map",
+            "0:a:0",
+            "-ac",
+            str(TARGET_CHANNELS),
+            "-ar",
+            str(TARGET_SAMPLE_RATE),
+            "-c:a",
+            "pcm_s16le",
+            "-y",
+            str(output_path),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
 
-            logger.warning(
-                f"WAV file '{input_path}' has incompatible format "
-                f"(channels={channels}, sample_rate={sample_rate}). Re-encoding to mono 16kHz WAV."
-            )
-        except ffmpeg.Error as e:
-            error_msg = e.stderr.decode() if e.stderr else str(e)
-            logger.warning(f"FFmpeg probe failed: {error_msg}. Will attempt conversion.")
-    else:
-        logger.info(f"Input file '{input_path}' is not a WAV. Converting to mono 16kHz WAV.")
+    if conversion.returncode != 0:
+        output_path.unlink(missing_ok=True)
+        raise RuntimeError("Audio conversion failed. Verify that the file contains a supported audio stream.")
+    if not output_path.is_file() or output_path.stat().st_size == 0:
+        output_path.unlink(missing_ok=True)
+        raise RuntimeError("Audio conversion produced no usable output")
 
-    temporary_path = Path(temporary_directory)
-    temporary_path.mkdir(mode=0o700, parents=True, exist_ok=True)
-    descriptor, output_path = tempfile.mkstemp(prefix="audio-", suffix=".wav", dir=temporary_path)
-    os.close(descriptor)
-    try:
-        return _convert_to_mono_wav(input_path, output_path)
-    except (OSError, RuntimeError):
-        Path(output_path).unlink(missing_ok=True)
-        raise
+    output_path.chmod(0o600)
+    return str(output_path)
 
 
-def _convert_to_mono_wav(input_path: str, output_path: str) -> str:
-    """Convert audio to mono 16kHz WAV using ffmpeg."""
-    logger.info(f"Converting audio: {input_path} -> {output_path}")
+def load_pcm_wav(audio_path: str | Path) -> np.ndarray:
+    """Load a mono 16 kHz PCM16 WAV as normalized float32 samples."""
+    with wave.open(str(audio_path), "rb") as audio_file:
+        channels = audio_file.getnchannels()
+        sample_rate = audio_file.getframerate()
+        sample_width = audio_file.getsampwidth()
+        compression = audio_file.getcomptype()
+        frame_count = audio_file.getnframes()
+        frames = audio_file.readframes(frame_count)
 
-    try:
-        ffmpeg.input(input_path).output(
-            output_path, acodec="pcm_s16le", ac=TARGET_CHANNELS, ar=str(TARGET_SAMPLE_RATE)
-        ).overwrite_output().run(quiet=True, capture_stderr=True)
-    except ffmpeg.Error as e:
-        error_msg = e.stderr.decode() if e.stderr else str(e)
-        raise RuntimeError(f"Audio conversion failed: {error_msg}") from e
+    if (
+        channels != TARGET_CHANNELS
+        or sample_rate != TARGET_SAMPLE_RATE
+        or sample_width != TARGET_SAMPLE_WIDTH
+        or compression != "NONE"
+    ):
+        raise ValueError(
+            f"Expected mono 16 kHz PCM16 WAV, got channels={channels}, sample_rate={sample_rate}, "
+            f"sample_width={sample_width}, compression={compression}"
+        )
+    if frame_count == 0:
+        raise ValueError("Audio contains no frames")
 
-    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-        raise RuntimeError(f"Conversion produced no usable output: {output_path}")
+    expected_size = frame_count * channels * sample_width
+    if len(frames) != expected_size:
+        raise ValueError(f"Audio WAV is truncated: {audio_path}")
 
-    logger.info(f"Audio successfully converted: {output_path}")
-    return output_path
+    samples = np.frombuffer(frames, dtype="<i2").astype(np.float32)
+    del frames
+    samples /= 32768.0
+    return samples

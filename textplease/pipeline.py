@@ -12,7 +12,6 @@ from sentence_transformers import SentenceTransformer
 
 from textplease.segmenter import segment_transcript, post_process_segments
 from textplease.transcriber import transcribe_audio
-from textplease.utils.audio_utils import extract_audio
 from textplease.utils.device_utils import detect_device
 from textplease.utils.deduplicate_segments import deduplicate_segments
 
@@ -157,13 +156,14 @@ def _filter_hallucinations(segments: list[dict]) -> list[dict]:
     return cleaned
 
 
-def _execute_transcription_stage(params: dict, audio_path: str) -> list[dict]:
-    """Transcribe audio, deduplicate chunk boundaries, and filter hallucinations."""
+def _execute_transcription_stage(params: dict, temporary_directory: str | Path) -> list[dict]:
+    """Transcribe original media, deduplicate boundaries, and filter hallucinations."""
     t0 = time.time()
     segments = transcribe_audio(
-        audio_path,
+        params["input_path"],
         params["model_name"],
         params["device"],
+        temporary_directory=temporary_directory,
         pause_threshold=params["pause_threshold"],
         language=params["language"],
         batch_size=params["whisper_batch_size"],
@@ -242,11 +242,7 @@ def run_transcription_pipeline(config: dict) -> None:
         else tempfile.TemporaryDirectory(prefix=".textplease-", dir=output_parent)
     )
     with temporary_directory as work_directory:
-        t0 = time.time()
-        audio_path = extract_audio(params["input_path"], work_directory)
-        logger.info(f"Audio extraction: {time.time() - t0:.2f}s")
-
-        segments = _execute_transcription_stage(params, audio_path)
+        segments = _execute_transcription_stage(params, work_directory)
 
         embedding_model = None
         if len(segments) > 1 and params["similarity_threshold"] < 1.0:

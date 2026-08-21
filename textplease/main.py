@@ -1,4 +1,5 @@
 import os
+import shutil
 import logging
 import argparse
 from pathlib import Path
@@ -6,6 +7,8 @@ from pathlib import Path
 import yaml
 
 from textplease.pipeline import run_transcription_pipeline
+from textplease.gradio_ui import launch_gradio
+from textplease.utils.audio_utils import FFMPEG_INSTALL_ERROR
 from textplease.utils.logging_config import configure_logging
 
 
@@ -19,11 +22,8 @@ def load_config(path: str) -> dict:
     if not config_file.exists():
         raise FileNotFoundError(f"Config file not found: {path}")
 
-    try:
-        with open(path) as f:
-            config = yaml.safe_load(f)
-    except yaml.YAMLError as e:
-        raise ValueError(f"Invalid YAML format in {path}: {e}") from e
+    with config_file.open() as config_stream:
+        config = yaml.safe_load(config_stream)
 
     if config is None:
         raise ValueError(f"Config file is empty: {path}")
@@ -49,31 +49,28 @@ def main() -> None:
     parser.add_argument("--config", help="Path to YAML config file.")
     parser.add_argument("--gradio", action="store_true", help="Launch the Gradio UI instead of CLI pipeline.")
 
-    try:
-        args = parser.parse_args()
+    args = parser.parse_args()
 
-        if args.gradio:
-            from textplease.gradio_ui import launch_gradio
+    if args.gradio:
+        launch_gradio()
+        return
 
-            launch_gradio()
-            return
+    if not args.config:
+        parser.error("--config is required when not using --gradio")
 
-        if not args.config:
-            parser.error("--config is required when not using --gradio")
+    config = load_config(args.config)
 
-        config = load_config(args.config)
+    env_config = config.get("environment", {})
+    if env_config:
+        apply_environment_config(env_config)
 
-        env_config = config.get("environment", {})
-        if env_config:
-            apply_environment_config(env_config)
+    if shutil.which("ffmpeg") is None:
+        parser.error(FFMPEG_INSTALL_ERROR)
 
-        log_level = config.get("log_level", "INFO").upper()
-        configure_logging(level=getattr(logging, log_level, logging.INFO))
+    log_level = config.get("log_level", "INFO").upper()
+    configure_logging(level=getattr(logging, log_level, logging.INFO))
 
-        run_transcription_pipeline(config)
-
-    except KeyboardInterrupt:
-        logger.info("Process interrupted by user")
+    run_transcription_pipeline(config)
 
 
 if __name__ == "__main__":
