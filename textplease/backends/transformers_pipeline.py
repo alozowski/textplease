@@ -38,12 +38,13 @@ def _load_model_and_processor(
 ) -> tuple[WhisperForConditionalGeneration, WhisperProcessor]:
     """Load Whisper model and processor."""
     logger.info(f"Loading Transformers model '{model_name}' on device: {device}")
-    processor = WhisperProcessor.from_pretrained(model_name)
+    processor = WhisperProcessor.from_pretrained(model_name, local_files_only=True)
     torch_dtype = torch.float16 if device not in ("cpu", "mps") else torch.float32
     model = WhisperForConditionalGeneration.from_pretrained(
         model_name,
         dtype=torch_dtype,
         low_cpu_mem_usage=True,
+        local_files_only=True,
         use_safetensors=True,
     )
     model = model.to(torch.device(device))

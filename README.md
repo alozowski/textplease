@@ -33,6 +33,20 @@ cd textplease
 uv sync --locked --no-dev
 ```
 
+### Prepare models once
+
+Model download is a separate online setup step. While connected to the internet, cache the default Whisper and
+segmentation models:
+
+```bash
+uv run --locked --no-dev hf download openai/whisper-large-v3
+uv run --locked --no-dev hf download sentence-transformers/all-MiniLM-L6-v2
+```
+
+After that, `textplease` loads models only from local files. Transcription fails instead of downloading when a configured
+model is missing. Prefetch any custom Hugging Face model ID with the same `hf download <model-id>` command; a local model
+directory also works.
+
 ### Web interface
 
 ```bash
@@ -59,6 +73,17 @@ uv run --locked --no-dev textplease --config my_config.yaml
 ```
 
 The transcript is written to the `output_path` set in the config. For the example config, that is `examples/LJSpeech-001_transcript.csv`.
+
+## Local privacy and retained files
+
+Audio and transcript content are processed locally. During transcription, supported model loaders are restricted to
+local files. The Gradio UI binds to `127.0.0.1`, cannot create a share tunnel, and has analytics and monitoring disabled.
+Use an operating-system firewall or disconnect the network when an external guarantee is required.
+
+Temporary decoded PCM is removed after each job. Gradio checks hourly for uploaded cache files older than 24 hours and
+clears its cache when the server restarts. Hugging Face model caches persist for reuse. The web interface also keeps each
+transcript, effective configuration, and run log in `output/` until you delete them; treat those files and their paths as
+sensitive.
 
 ## How It Works
 
@@ -97,6 +122,8 @@ flowchart TD
 Transcription runs on multilingual Whisper models via Hugging Face Transformers:
 
 - [openai/whisper-large-v3](https://huggingface.co/openai/whisper-large-v3) — multilingual, 97+ languages
+
+Each model must be prefetched or provided as a local directory before transcription starts.
 
 ## Output Format
 

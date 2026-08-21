@@ -1,4 +1,3 @@
-import os
 import shutil
 import logging
 import argparse
@@ -12,7 +11,6 @@ from textplease.utils.audio_utils import FFMPEG_INSTALL_ERROR
 from textplease.utils.logging_config import configure_logging
 
 
-logger = logging.getLogger(__name__)
 __all__ = ["main"]
 
 
@@ -28,19 +26,6 @@ def load_config(path: str) -> dict:
     if config is None:
         raise ValueError(f"Config file is empty: {path}")
     return config
-
-
-def apply_environment_config(env_config: dict) -> None:
-    """Set environment variables from config if not already set."""
-    if not isinstance(env_config, dict):
-        logger.warning(f"Invalid environment config (expected dict): {type(env_config)}")
-        return
-    for key, value in env_config.items():
-        if key not in os.environ:
-            os.environ[key] = str(value)
-            logger.info(f"Applied env var: {key}={value}")
-        else:
-            logger.debug(f"Env var {key} already set, skipping.")
 
 
 def main() -> None:
@@ -59,10 +44,6 @@ def main() -> None:
         parser.error("--config is required when not using --gradio")
 
     config = load_config(args.config)
-
-    env_config = config.get("environment", {})
-    if env_config:
-        apply_environment_config(env_config)
 
     if shutil.which("ffmpeg") is None:
         parser.error(FFMPEG_INSTALL_ERROR)
