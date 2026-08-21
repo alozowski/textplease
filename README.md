@@ -44,7 +44,7 @@ uv run --locked --no-dev hf download sentence-transformers/all-MiniLM-L6-v2
 ```
 
 After that, `textplease` loads models only from local files. Transcription fails instead of downloading when a configured
-model is missing. Prefetch any custom Hugging Face model ID with the same `hf download <model-id>` command; a local model
+model is missing. Prefetch any custom Hugging Face model ID with the same `hf download <model-id>` command. A local model
 directory also works.
 
 ### Web interface
@@ -82,8 +82,8 @@ Use an operating-system firewall or disconnect the network when an external guar
 
 Temporary decoded PCM is removed after each job. Gradio checks hourly for uploaded cache files older than 24 hours and
 clears its cache when the server restarts. Hugging Face model caches persist for reuse. The web interface also keeps each
-transcript, effective configuration, and run log in `output/` until you delete them; treat those files and their paths as
-sensitive.
+job's transcript, effective configuration, and run log in a private directory under `output/`. Cancel removes temporary
+PCM. Clear deletes that job directory and its retained artifacts. Download anything you need before clearing the form.
 
 ## How It Works
 

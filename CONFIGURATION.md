@@ -7,7 +7,8 @@ You can run the app in two ways:
 - Web interface: `textplease --gradio`
 - Command line: `textplease --config path/to/config.yaml`
 
-The web interface is the easiest option. Upload a file, choose a language, and start the transcription. A copy of the configuration is saved in `output/` with the transcript.
+The web interface is the easiest option. Upload a file, choose a language, and start the transcription. Each run stores
+its transcript, configuration, and log in a private job directory under `output/`. Clear deletes that job directory.
 
 ## Quick start from the command line
 
@@ -179,8 +180,8 @@ at a time.
 `chunk_size` controls how many pieces of the Whisper transcript are handled at once during merging. Set it to `0` to turn chunked merging off. Embeddings are created before this stage, so lowering `chunk_size` does not reduce the memory used to create them.
 
 The web interface keeps its loaded Whisper and embedding models after a successful transcription so later jobs can
-reuse them. Stopping, killing, or failing a job discards the worker and its models; changing the model or device also
-starts a fresh worker.
+reuse them. Cancelling or failing a job discards the worker and its models; changing the model or device also starts a
+fresh worker. Cancel removes temporary PCM, while Clear also deletes that job's transcript, configuration, and log.
 
 ## Environment variables
 
