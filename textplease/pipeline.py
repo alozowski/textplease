@@ -2,15 +2,17 @@ import os
 import re
 import time
 import logging
+import tempfile
 from pathlib import Path
 from functools import lru_cache
+from contextlib import nullcontext
 
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 
 from textplease.segmenter import segment_transcript, post_process_segments
 from textplease.transcriber import transcribe_audio
-from textplease.utils.audio_utils import cleanup_temp, extract_audio
+from textplease.utils.audio_utils import extract_audio
 from textplease.utils.device_utils import detect_device
 from textplease.utils.deduplicate_segments import deduplicate_segments
 
@@ -42,7 +44,7 @@ _HALLUCINATION_PATTERNS: list[re.Pattern] = [
 _REPEATED_PHRASE = re.compile(r"(.{4,40}?)(\s+\1){2,}", re.IGNORECASE)
 
 
-def save_to_csv(segments: list, output_path: str) -> str:
+def save_to_csv(segments: list, output_path: str, temporary_directory: str | Path) -> str:
     """Save segments to a tab-separated CSV file."""
     if not segments:
         raise ValueError("Cannot save empty segments list")
@@ -52,11 +54,15 @@ def save_to_csv(segments: list, output_path: str) -> str:
     if df.empty:
         raise ValueError("No valid segments to save (all were empty)")
 
-    output_dir = os.path.dirname(output_path)
-    if output_dir:
-        os.makedirs(output_dir, exist_ok=True)
-
-    df.to_csv(output_path, index=False, sep="\t")
+    output = Path(output_path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    temporary_output = Path(temporary_directory) / "transcript.tsv"
+    try:
+        df.to_csv(temporary_output, index=False, sep="\t")
+        temporary_output.chmod(0o600)
+        os.replace(temporary_output, output)
+    finally:
+        temporary_output.unlink(missing_ok=True)
     logger.info(f"Saved {len(df)} segments to {output_path}")
     return output_path
 
@@ -90,6 +96,15 @@ def _validate_pipeline_config(config: dict) -> None:
 
     if not Path(input_path).exists():
         raise FileNotFoundError(f"Input file not found: {input_path}")
+
+    output_path = config["output_path"]
+    if not output_path or not isinstance(output_path, str):
+        raise ValueError(f"Invalid output_path: {output_path}")
+
+    input_file = Path(input_path)
+    output_file = Path(output_path)
+    if input_file.resolve() == output_file.resolve() or (output_file.exists() and input_file.samefile(output_file)):
+        raise ValueError("Input and output paths must refer to different files")
 
 
 def _extract_config_params(config: dict) -> dict:
@@ -199,27 +214,6 @@ def _execute_post_processing(segments: list, params: dict) -> list[dict]:
     return final
 
 
-def _save_and_cleanup(final_segments: list, params: dict, audio_path: str) -> None:
-    """Persist results and remove temporary audio file."""
-    t0 = time.time()
-
-    if os.path.exists(params["output_path"]):
-        try:
-            os.remove(params["output_path"])
-        except Exception as e:
-            logger.warning(f"Could not delete existing output file: {e}")
-
-    save_to_csv(final_segments, params["output_path"])
-    logger.info(f"Save: {time.time() - t0:.2f}s")
-
-    if cleanup_temp(params["input_path"], audio_path):
-        try:
-            os.remove(audio_path)
-            logger.info(f"Deleted temporary audio file: {audio_path}")
-        except Exception as e:
-            logger.warning(f"Could not delete temp file: {e}")
-
-
 def run_transcription_pipeline(config: dict) -> None:
     """Run the complete transcription pipeline."""
     start = time.time()
@@ -235,20 +229,35 @@ def run_transcription_pipeline(config: dict) -> None:
         f"Embedding: {params['embedding_model_name']} | Similarity threshold: {params['similarity_threshold']}"
     )
 
-    t0 = time.time()
-    audio_path = extract_audio(params["input_path"])
-    logger.info(f"Audio extraction: {time.time() - t0:.2f}s")
-
-    segments = _execute_transcription_stage(params, audio_path)
-
-    embedding_model = None
-    if len(segments) > 1 and params["similarity_threshold"] < 1.0:
+    output_parent = Path(params["output_path"]).resolve().parent
+    output_parent.mkdir(parents=True, exist_ok=True)
+    provided_directory = config.get("_temporary_directory")
+    if provided_directory is not None and (
+        not isinstance(provided_directory, Path) or provided_directory.resolve().parent != output_parent
+    ):
+        raise ValueError("Invalid managed temporary directory")
+    temporary_directory = (
+        nullcontext(provided_directory)
+        if provided_directory is not None
+        else tempfile.TemporaryDirectory(prefix=".textplease-", dir=output_parent)
+    )
+    with temporary_directory as work_directory:
         t0 = time.time()
-        embedding_model = _load_embedding_model(params["embedding_model_name"], params["device"])
-        logger.info(f"SentenceTransformer loaded in {time.time() - t0:.2f}s")
+        audio_path = extract_audio(params["input_path"], work_directory)
+        logger.info(f"Audio extraction: {time.time() - t0:.2f}s")
 
-    coherent = _execute_segmentation_stage(segments, params, embedding_model)
-    final = _execute_post_processing(coherent, params)
-    _save_and_cleanup(final, params, audio_path)
+        segments = _execute_transcription_stage(params, audio_path)
+
+        embedding_model = None
+        if len(segments) > 1 and params["similarity_threshold"] < 1.0:
+            t0 = time.time()
+            embedding_model = _load_embedding_model(params["embedding_model_name"], params["device"])
+            logger.info(f"SentenceTransformer loaded in {time.time() - t0:.2f}s")
+
+        coherent = _execute_segmentation_stage(segments, params, embedding_model)
+        final = _execute_post_processing(coherent, params)
+        t0 = time.time()
+        save_to_csv(final, params["output_path"], work_directory)
+        logger.info(f"Save: {time.time() - t0:.2f}s")
 
     logger.info(f"Total processing time: {time.time() - start:.2f}s")

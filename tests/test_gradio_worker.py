@@ -11,6 +11,12 @@ def _record_process(config: dict) -> None:
         output_file.write(f"{os.getpid()}\n")
 
 
+def _write_temporary_audio(config: dict) -> None:
+    Path(config["_temporary_directory"], "audio.wav").write_bytes(b"sensitive audio")
+    Path(config["_temporary_directory"], "transcript.tsv").write_text("partial transcript")
+    time.sleep(10)
+
+
 def _wait_for_result(worker: PersistentPipelineWorker, job_id: int) -> str | None:
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
@@ -62,5 +68,45 @@ def test_worker_restarts_after_termination(tmp_path):
         successful_job = worker.submit(config, str(tmp_path / "successful.log"))
         assert worker.pid != stopped_pid
         assert _wait_for_result(worker, successful_job) is None
+    finally:
+        worker.shutdown()
+
+
+def test_forced_termination_removes_job_temporary_directory(tmp_path):
+    input_path = tmp_path / "input.wav"
+    input_path.write_bytes(b"original audio")
+    output_path = tmp_path / "output.csv"
+    output_path.write_text("existing transcript")
+    worker = PersistentPipelineWorker(_write_temporary_audio)
+
+    try:
+        job_id = worker.submit(
+            {
+                "input_path": str(input_path),
+                "model_name": "test-model",
+                "device": "cpu",
+                "output_path": str(output_path),
+            },
+            str(tmp_path / "worker.log"),
+        )
+        deadline = time.monotonic() + 10
+        temporary_audio = []
+        while time.monotonic() < deadline:
+            temporary_audio = list(tmp_path.glob(".textplease-*/audio.wav"))
+            if temporary_audio:
+                break
+            time.sleep(0.01)
+
+        temporary_directories = list(tmp_path.glob(".textplease-*"))
+        assert temporary_audio
+        assert len(temporary_directories) == 1
+        if os.name != "nt":
+            assert temporary_directories[0].stat().st_mode & 0o777 == 0o700
+        worker.terminate(force=True)
+
+        assert worker.result(job_id)[0]
+        assert not temporary_directories[0].exists()
+        assert input_path.read_bytes() == b"original audio"
+        assert output_path.read_text() == "existing transcript"
     finally:
         worker.shutdown()

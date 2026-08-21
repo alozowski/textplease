@@ -45,11 +45,10 @@ def test_pipeline_uses_resolved_device(monkeypatch, tmp_path):
     calls.attach_mock(sentence_transformer, "embedding")
 
     monkeypatch.setattr(pipeline, "detect_device", lambda device: "cuda")
-    monkeypatch.setattr(pipeline, "extract_audio", lambda path: path)
+    monkeypatch.setattr(pipeline, "extract_audio", lambda path, temporary_directory: path)
     monkeypatch.setattr(pipeline, "SentenceTransformer", sentence_transformer)
     monkeypatch.setattr(pipeline, "transcribe_audio", transcribe_audio)
     monkeypatch.setattr(pipeline, "segment_transcript", segment_transcript)
-    monkeypatch.setattr(pipeline, "cleanup_temp", lambda original, extracted: False)
 
     pipeline.run_transcription_pipeline(
         {

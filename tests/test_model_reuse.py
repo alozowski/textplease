@@ -16,11 +16,10 @@ def test_pipeline_reuses_embedding_model(monkeypatch, tmp_path):
         {"start_time": "00:00:02.000", "end_time": "00:00:03.000", "text": "Second test segment."},
     ]
 
-    monkeypatch.setattr(pipeline, "extract_audio", lambda path: path)
+    monkeypatch.setattr(pipeline, "extract_audio", lambda path, temporary_directory: path)
     monkeypatch.setattr(pipeline, "transcribe_audio", lambda *args, **kwargs: segments)
     monkeypatch.setattr(pipeline, "SentenceTransformer", sentence_transformer)
     monkeypatch.setattr(pipeline, "segment_transcript", lambda transcript, **kwargs: transcript)
-    monkeypatch.setattr(pipeline, "cleanup_temp", lambda original, extracted: False)
 
     pipeline._load_embedding_model.cache_clear()
     try:
