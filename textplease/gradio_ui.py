@@ -1,24 +1,24 @@
 import re
 import time
+import shutil
 import logging
+import tempfile
 from pathlib import Path
+from functools import partial
 
 import yaml
 import gradio as gr
 import pandas as pd
 from pydub.utils import mediainfo
+from pydub.exceptions import CouldntDecodeError
 
 from textplease.pipeline import DEFAULT_EMBEDDING_MODEL
-from textplease.gradio_worker import PersistentPipelineWorker
+from textplease.gradio_worker import CANCELLED_ERROR, PersistentPipelineWorker
 from textplease.utils.device_utils import detect_device
 
 
 logger = logging.getLogger(__name__)
-
-OUTPUT_DIR = Path("output")
-
 DEFAULT_MODEL = "openai/whisper-large-v3"
-PIPELINE_WORKER = PersistentPipelineWorker()
 
 # Whisper backend logs one line per VAD segment — the child's log file is the progress signal.
 _PROGRESS_RE = re.compile(r"Transcribing speech segment (\d+)/(\d+)")
@@ -28,9 +28,8 @@ _TOOLTIP_JS = """
 () => {
     const tips = {
         "run-btn": "Transcribe the uploaded audio",
-        "stop-btn": "Gracefully stop the running transcription",
-        "kill-btn": "Force-kill the transcription immediately",
-        "clear-btn": "Reset all inputs and results",
+        "cancel-btn": "Cancel the running transcription",
+        "clear-btn": "Delete this job's local artifacts and reset the form",
     };
     const apply = () => {
         let missing = false;
@@ -49,7 +48,7 @@ _TOOLTIP_JS = """
 }
 """
 
-LANGUAGE_CHOICES = [
+LANGUAGE_CHOICES = (
     ("English", "en"),
     ("Russian", "ru"),
     ("Spanish", "es"),
@@ -60,12 +59,23 @@ LANGUAGE_CHOICES = [
     ("Chinese", "zh"),
     ("Korean", "ko"),
     ("Japanese", "ja"),
-]
+)
 
 
-def _create_transcription_config(
-    input_path: Path,
-    output_path: Path,
+def _delete_job_workspace(output_directory: Path, workspace_path: Path) -> None:
+    resolved_output_directory = output_directory.resolve()
+    if workspace_path.parent.resolve() != resolved_output_directory or not workspace_path.name.startswith("job-"):
+        raise ValueError(f"Refusing to delete unowned job workspace: {workspace_path}")
+    if workspace_path.is_symlink():
+        workspace_path.unlink()
+    elif workspace_path.exists():
+        shutil.rmtree(workspace_path)
+
+
+def start_transcription(
+    worker: PersistentPipelineWorker,
+    output_directory: Path,
+    audio_file: str | None,
     similarity_threshold: float,
     pause_threshold: float,
     max_segment_words: int,
@@ -73,9 +83,49 @@ def _create_transcription_config(
     min_segment_chars: int,
     language: str,
     device: str,
-) -> dict:
-    """Create transcription configuration dictionary."""
-    return {
+    run: dict | None,
+) -> tuple[object, ...]:
+    """Launch one isolated transcription job."""
+
+    def error_result(message: str) -> tuple[object, ...]:
+        return (
+            message,
+            gr.update(visible=False),
+            gr.update(interactive=False, value=False),
+            gr.update(visible=False, value=None),
+            None,
+            gr.update(interactive=True),
+            gr.update(visible=False),
+            gr.update(active=False),
+            None,
+        )
+
+    if audio_file is None:
+        return error_result("❌ Please upload an audio file.")
+
+    input_path = Path(audio_file)
+    if not input_path.is_file():
+        return error_result(f"❌ Uploaded file not found: {audio_file}")
+
+    if run is not None and worker.is_running(run["job_id"]):
+        return (
+            "⏳ A transcription is already running.",
+            gr.update(),
+            gr.update(),
+            gr.update(),
+            None,
+            gr.update(interactive=False),
+            gr.update(visible=True),
+            gr.update(active=True),
+            run,
+        )
+
+    output_directory.mkdir(parents=True, exist_ok=True)
+    workspace_path = Path(tempfile.mkdtemp(prefix="job-", dir=output_directory))
+    output_path = workspace_path / f"{input_path.stem}_transcript.csv"
+    config_path = workspace_path / "config.yaml"
+    log_path = workspace_path / "run.log"
+    config = {
         "input_path": str(input_path),
         "output_path": str(output_path),
         "model_name": DEFAULT_MODEL,
@@ -89,89 +139,43 @@ def _create_transcription_config(
         "log_level": "INFO",
         "language": language,
     }
-
-
-def start_transcription(
-    audio_file,
-    similarity_threshold,
-    pause_threshold,
-    max_segment_words,
-    min_segment_words,
-    min_segment_chars,
-    language,
-    device,
-):
-    """Launch transcription in a child process and show run controls."""
-
-    def _err(msg):
-        return (
-            msg,
-            gr.update(visible=False),  # download_button
-            gr.update(interactive=False, value=False),  # show_transcript
-            gr.update(visible=False, value=None),  # csv_preview
-            None,  # transcript_state
-            gr.update(visible=False),  # stop_button
-            gr.update(visible=False),  # kill_button
-            gr.update(active=False),  # poll_timer
-            None,  # run_state
-        )
-
-    if audio_file is None:
-        return _err("❌ Please upload an audio file.")
-
     try:
-        input_path = Path(audio_file)
-        if not input_path.is_file():
-            raise FileNotFoundError(f"Uploaded file not found: {audio_file}")
-        output_path = OUTPUT_DIR / f"{input_path.stem}_transcript.csv"
-        config = _create_transcription_config(
-            input_path,
-            output_path,
-            similarity_threshold,
-            pause_threshold,
-            max_segment_words,
-            min_segment_words,
-            min_segment_chars,
-            language,
-            device,
-        )
-        config_path = OUTPUT_DIR / f"{input_path.stem}_config.yaml"
-        with open(config_path, "w") as f:
-            yaml.dump(config, f)
+        config_path.write_text(yaml.safe_dump(config), encoding="utf-8")
+        config_path.chmod(0o600)
+        log_path.touch(mode=0o600)
+        job_id = worker.submit(config, str(log_path))
+    except (OSError, RuntimeError, yaml.YAMLError) as error:
+        _delete_job_workspace(output_directory, workspace_path)
+        return error_result(f"❌ Could not start transcription: {error}")
 
-        log_path = OUTPUT_DIR / f"{input_path.stem}_run.log"
-        log_path.unlink(missing_ok=True)
-        job_id = PIPELINE_WORKER.submit(config, str(log_path))
-        logger.info(f"Transcription process started (pid={PIPELINE_WORKER.pid})")
+    active_run = {
+        "job_id": job_id,
+        "workspace_path": workspace_path,
+        "output_path": output_path,
+        "config_path": config_path,
+        "log_path": log_path,
+        "started": time.time(),
+    }
+    logger.info("Transcription process started (pid=%s)", worker.pid)
 
-        return (
-            "⏳ Transcription starting...",
-            gr.update(visible=False),
-            gr.update(interactive=False, value=False),
-            gr.update(visible=False, value=None),
-            None,
-            gr.update(visible=True),
-            gr.update(visible=True),
-            gr.update(active=True),
-            {
-                "job_id": job_id,
-                "output_path": output_path,
-                "config_path": config_path,
-                "log_path": log_path,
-                "started": time.time(),
-            },
-        )
-
-    except (ValueError, FileNotFoundError) as e:
-        return _err(f"❌ File error: {e}")
-    except RuntimeError as e:
-        return _err(f"❌ {e}")
-    except Exception as e:
-        logger.error(f"Unexpected error in start_transcription: {e}", exc_info=True)
-        return _err(f"❌ Unexpected error: {e}")
+    return (
+        "⏳ Transcription starting...",
+        gr.update(visible=False),
+        gr.update(interactive=False, value=False),
+        gr.update(visible=False, value=None),
+        None,
+        gr.update(interactive=False),
+        gr.update(visible=True),
+        gr.update(active=True),
+        active_run,
+    )
 
 
-def check_completion(run, transcript_path):
+def check_completion(
+    worker: PersistentPipelineWorker,
+    run: dict | None,
+    transcript_path: str | None,
+) -> tuple[object, ...]:
     """Poll the transcription process; report progress, then surface results and hide run controls."""
     noop = (
         gr.update(),
@@ -187,7 +191,7 @@ def check_completion(run, transcript_path):
     if run is None:
         return noop
 
-    done, error = PIPELINE_WORKER.result(run["job_id"])
+    done, error = worker.result(run["job_id"])
     if not done:
         elapsed = int(time.time() - run["started"])
         try:
@@ -211,7 +215,12 @@ def check_completion(run, transcript_path):
 
     output_path = run["output_path"]
 
-    done = (gr.update(visible=False), gr.update(visible=False), gr.update(active=False), None)
+    completed = (
+        gr.update(interactive=True),
+        gr.update(visible=False),
+        gr.update(active=False),
+        run,
+    )
 
     if error is None and output_path.exists():
         return (
@@ -222,11 +231,11 @@ def check_completion(run, transcript_path):
             gr.update(interactive=True, value=True),
             preview_transcript(True, str(output_path)),
             str(output_path),
-            *done,
+            *completed,
         )
 
-    if PIPELINE_WORKER.exitcode is not None and PIPELINE_WORKER.exitcode < 0:
-        status = f"🛑 Transcription stopped (exit code {PIPELINE_WORKER.exitcode})"
+    if error == CANCELLED_ERROR:
+        status = "🛑 Transcription cancelled"
     else:
         status = f"❌ Transcription failed ({error}) — see `{run['log_path']}`"
     return (
@@ -235,24 +244,42 @@ def check_completion(run, transcript_path):
         gr.update(interactive=False, value=False),
         gr.update(visible=False, value=None),
         None,
-        *done,
+        *completed,
     )
 
 
-def stop_transcription(run):
-    """Terminate the transcription process gracefully."""
-    if run and PIPELINE_WORKER.is_running(run["job_id"]):
-        PIPELINE_WORKER.terminate()
-        return "🛑 Stopping..."
+def cancel_transcription(worker: PersistentPipelineWorker, run: dict | None) -> str:
+    """Cancel the active transcription process."""
+    if run and worker.is_running(run["job_id"]):
+        worker.terminate()
+        return "🛑 Transcription cancelled"
     return "Process is not running"
 
 
-def kill_transcription(run):
-    """Kill the transcription process immediately."""
-    if run and PIPELINE_WORKER.is_running(run["job_id"]):
-        PIPELINE_WORKER.terminate(force=True)
-        return "💀 Killed"
-    return "Process is not running"
+def clear_transcription(
+    worker: PersistentPipelineWorker,
+    output_directory: Path,
+    run: dict | None,
+) -> tuple[object, ...]:
+    """Cancel a job, delete its local artifacts, and reset the UI."""
+    if run and worker.is_running(run["job_id"]):
+        worker.terminate()
+    if run:
+        _delete_job_workspace(output_directory, run["workspace_path"])
+
+    return (
+        None,
+        None,
+        "Waiting...",
+        gr.update(visible=False),
+        gr.update(value=False, interactive=False),
+        gr.update(visible=False, value=None),
+        None,
+        gr.update(interactive=True),
+        gr.update(visible=False),
+        gr.update(active=False),
+        None,
+    )
 
 
 def show_audio_info(file_path: str | None) -> tuple[str | None, str]:
@@ -267,9 +294,9 @@ def show_audio_info(file_path: str | None) -> tuple[str | None, str]:
         channels = info.get("channels", "Unknown")
         details = f"🕒 Duration: {duration}s\n📊 Sample rate: {sample_rate} Hz\n🔊 Channels: {channels}"
         return file_path, details
-    except Exception as e:
-        logger.error(f"Failed to get audio info: {e}")
-        return file_path, f"⚠️ Could not read audio info: {e}"
+    except (CouldntDecodeError, OSError, TypeError, ValueError) as error:
+        logger.error("Failed to get audio info: %s", error)
+        return file_path, f"⚠️ Could not read audio info: {error}"
 
 
 def preview_transcript(show: bool, file_path: str | None):
@@ -308,17 +335,23 @@ def preview_transcript(show: bool, file_path: str | None):
             },
         )
 
-    except Exception as e:
-        logger.error(f"CSV preview error: {e}", exc_info=True)
+    except (OSError, UnicodeError, ValueError, pd.errors.ParserError) as error:
+        logger.error("CSV preview error: %s", error)
         return gr.update(
             visible=True,
-            value=[[f"Error loading CSV: {str(e)}"]],
+            value=[[f"Error loading CSV: {error}"]],
         )
 
 
-def launch_gradio():
+def launch_gradio(
+    output_directory: Path | None = None,
+    worker: PersistentPipelineWorker | None = None,
+) -> None:
     """Launch the Gradio web interface."""
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    output_directory = output_directory or Path("output")
+    worker = worker or PersistentPipelineWorker()
+    output_directory.mkdir(parents=True, exist_ok=True)
+    concurrency_id = "transcription-lifecycle"
 
     best_device = detect_device("auto")
     logger.info(f"Best available device detected: {best_device}")
@@ -416,10 +449,9 @@ def launch_gradio():
                 scale=1,
             )
             run_button = gr.Button("🚀 Start Transcription", variant="primary", size="lg", scale=2, elem_id="run-btn")
-            stop_button = gr.Button(
-                "🛑 Stop", visible=False, variant="secondary", size="lg", scale=1, elem_id="stop-btn"
+            cancel_button = gr.Button(
+                "🛑 Cancel", visible=False, variant="stop", size="lg", scale=1, elem_id="cancel-btn"
             )
-            kill_button = gr.Button("💀 Kill", visible=False, variant="stop", size="lg", scale=1, elem_id="kill-btn")
             clear_btn = gr.Button("🧹 Clear", size="lg", scale=1, elem_id="clear-btn")
 
         status_text = gr.Textbox(label="Status", value="Waiting...", interactive=False, lines=3)
@@ -452,14 +484,14 @@ def launch_gradio():
             show_transcript,
             csv_preview,
             transcript_state,
-            stop_button,
-            kill_button,
+            run_button,
+            cancel_button,
             poll_timer,
             run_state,
         ]
 
         run_button.click(
-            start_transcription,
+            partial(start_transcription, worker, output_directory),
             inputs=[
                 audio_input,
                 similarity_threshold,
@@ -469,38 +501,35 @@ def launch_gradio():
                 min_segment_chars,
                 language,
                 device,
+                run_state,
             ],
             outputs=run_outputs,
+            trigger_mode="once",
+            concurrency_limit=1,
+            concurrency_id=concurrency_id,
+            api_visibility="private",
         )
 
         poll_timer.tick(
-            check_completion,
+            partial(check_completion, worker),
             inputs=[run_state, transcript_state],
             outputs=run_outputs,
+            concurrency_limit=1,
+            concurrency_id=concurrency_id,
+            api_visibility="private",
         )
 
-        stop_button.click(stop_transcription, inputs=[run_state], outputs=[status_text])
-        kill_button.click(kill_transcription, inputs=[run_state], outputs=[status_text])
-
-        def clear_all(run):
-            if run and PIPELINE_WORKER.is_running(run["job_id"]):
-                PIPELINE_WORKER.terminate()
-            return (
-                None,  # audio_input
-                None,  # audio_preview
-                "Waiting...",  # status_text
-                gr.update(visible=False),  # download_button
-                gr.update(value=False, interactive=False),  # show_transcript
-                gr.update(visible=False, value=None),  # csv_preview
-                None,  # transcript_state
-                gr.update(visible=False),  # stop_button
-                gr.update(visible=False),  # kill_button
-                gr.update(active=False),  # poll_timer
-                None,  # run_state
-            )
+        cancel_button.click(
+            partial(cancel_transcription, worker),
+            inputs=[run_state],
+            outputs=[status_text],
+            concurrency_limit=1,
+            concurrency_id=concurrency_id,
+            api_visibility="private",
+        )
 
         clear_btn.click(
-            clear_all,
+            partial(clear_transcription, worker, output_directory),
             inputs=[run_state],
             outputs=[
                 audio_input,
@@ -510,11 +539,14 @@ def launch_gradio():
                 show_transcript,
                 csv_preview,
                 transcript_state,
-                stop_button,
-                kill_button,
+                run_button,
+                cancel_button,
                 poll_timer,
                 run_state,
             ],
+            concurrency_limit=1,
+            concurrency_id=concurrency_id,
+            api_visibility="private",
         )
 
         show_transcript.change(
@@ -539,7 +571,7 @@ def launch_gradio():
             enable_monitoring=False,
         )
     finally:
-        PIPELINE_WORKER.shutdown()
+        worker.terminate()
 
 
 if __name__ == "__main__":

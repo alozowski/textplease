@@ -11,6 +11,7 @@ from textplease.utils.logging_config import configure_logging
 
 
 logger = logging.getLogger(__name__)
+CANCELLED_ERROR = "Transcription cancelled"
 
 
 def _run_worker(
@@ -125,14 +126,10 @@ class PersistentPipelineWorker:
         done, _ = self.result(job_id)
         return not done
 
-    def terminate(self, force: bool = False) -> None:
-        """Stop the worker, discarding its loaded models."""
+    def terminate(self) -> None:
+        """Cancel the active job and discard the worker's loaded models."""
         with self._lock:
-            self._stop_worker(force=force)
-
-    def shutdown(self) -> None:
-        """Release the worker process and its model memory."""
-        self.terminate()
+            self._stop_worker(cancelled=True)
 
     def _result(self, job_id: int) -> tuple[bool, str | None]:
         self._drain_results()
@@ -180,22 +177,22 @@ class PersistentPipelineWorker:
         self._result_connection = parent_results
         self._last_exitcode = None
 
-    def _stop_worker(self, force: bool = False) -> None:
+    def _stop_worker(self, cancelled: bool = False) -> None:
         if self._process is None:
             return
+        self._drain_results()
         if self._process.is_alive():
-            if force:
-                self._process.kill()
-            else:
-                self._process.terminate()
+            self._process.terminate()
             self._process.join(timeout=5)
             if self._process.is_alive():
                 self._process.kill()
                 self._process.join(timeout=5)
+        self._drain_results()
 
         self._last_exitcode = self._process.exitcode
         if self._current_job_id is not None and self._current_job_id not in self._results:
-            self._results[self._current_job_id] = f"Worker exited with code {self._last_exitcode}"
+            error = CANCELLED_ERROR if cancelled else f"Worker exited with code {self._last_exitcode}"
+            self._results[self._current_job_id] = error
         if self._current_job_id is not None:
             self._cleanup_job(self._current_job_id)
         self._process.close()

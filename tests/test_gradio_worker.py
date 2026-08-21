@@ -2,7 +2,9 @@ import os
 import time
 from pathlib import Path
 
-from textplease.gradio_worker import PersistentPipelineWorker
+import pytest
+
+from textplease.gradio_worker import CANCELLED_ERROR, PersistentPipelineWorker
 
 
 def _record_process(config: dict) -> None:
@@ -43,7 +45,7 @@ def test_worker_reuses_process_after_success(tmp_path):
         second_job = worker.submit(config, str(tmp_path / "second.log"))
         assert _wait_for_result(worker, second_job) is None
     finally:
-        worker.shutdown()
+        worker.terminate()
 
     assert len(set(output_path.read_text().splitlines())) == 1
 
@@ -62,17 +64,38 @@ def test_worker_restarts_after_termination(tmp_path):
         stopped_job = worker.submit(config, str(tmp_path / "stopped.log"))
         stopped_pid = worker.pid
         worker.terminate()
-        assert worker.result(stopped_job)[0]
+        assert worker.result(stopped_job) == (True, CANCELLED_ERROR)
 
         config["delay"] = 0
         successful_job = worker.submit(config, str(tmp_path / "successful.log"))
         assert worker.pid != stopped_pid
         assert _wait_for_result(worker, successful_job) is None
     finally:
-        worker.shutdown()
+        worker.terminate()
 
 
-def test_forced_termination_removes_job_temporary_directory(tmp_path):
+def test_worker_rejects_second_job_without_interrupting_active_job(tmp_path):
+    output_path = tmp_path / "worker_pids.txt"
+    config = {
+        "model_name": "test-model",
+        "device": "cpu",
+        "output_path": str(output_path),
+        "delay": 10,
+    }
+    worker = PersistentPipelineWorker(_record_process)
+
+    try:
+        active_job = worker.submit(config, str(tmp_path / "active.log"))
+
+        with pytest.raises(RuntimeError, match="Another transcription is already running"):
+            worker.submit(config, str(tmp_path / "rejected.log"))
+
+        assert worker.is_running(active_job)
+    finally:
+        worker.terminate()
+
+
+def test_cancellation_removes_job_temporary_directory(tmp_path):
     input_path = tmp_path / "input.wav"
     input_path.write_bytes(b"original audio")
     output_path = tmp_path / "output.csv"
@@ -102,11 +125,11 @@ def test_forced_termination_removes_job_temporary_directory(tmp_path):
         assert len(temporary_directories) == 1
         if os.name != "nt":
             assert temporary_directories[0].stat().st_mode & 0o777 == 0o700
-        worker.terminate(force=True)
+        worker.terminate()
 
         assert worker.result(job_id)[0]
         assert not temporary_directories[0].exists()
         assert input_path.read_bytes() == b"original audio"
         assert output_path.read_text() == "existing transcript"
     finally:
-        worker.shutdown()
+        worker.terminate()
