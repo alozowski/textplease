@@ -1,10 +1,12 @@
 from types import SimpleNamespace
 from unittest.mock import Mock
 
+import numpy as np
 import torch
 
 from textplease import pipeline, segmenter
 from textplease.backends import transformers_pipeline
+from textplease.utils.audio_utils import TARGET_SAMPLE_RATE
 
 
 def test_pipeline_reuses_embedding_model(monkeypatch, tmp_path):
@@ -79,8 +81,22 @@ def test_transcriber_reuses_whisper_model(monkeypatch):
 
     monkeypatch.setattr(transformers_pipeline.WhisperProcessor, "from_pretrained", processor_loader)
     monkeypatch.setattr(transformers_pipeline.WhisperForConditionalGeneration, "from_pretrained", model_loader)
-    monkeypatch.setattr(transformers_pipeline, "load_pcm_wav", lambda path: object())
-    monkeypatch.setattr(transformers_pipeline, "_transcribe_with_fallbacks", lambda *args: [])
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "load_pcm_wav",
+        lambda path: np.zeros(TARGET_SAMPLE_RATE, dtype=np.float32),
+    )
+    monkeypatch.setattr(transformers_pipeline, "load_silero_vad", lambda: object())
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "get_speech_timestamps",
+        lambda *args, **kwargs: [{"start": 0, "end": TARGET_SAMPLE_RATE}],
+    )
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "_transcribe_speech_segments",
+        lambda model, processor, audio_chunks, device, language: [[] for _ in audio_chunks],
+    )
 
     transformers_pipeline._load_model_and_processor.cache_clear()
     try:

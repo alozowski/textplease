@@ -45,13 +45,11 @@ _REPEATED_PHRASE = re.compile(r"(.{4,40}?)(\s+\1){2,}", re.IGNORECASE)
 
 def save_to_csv(segments: list, output_path: str, temporary_directory: str | Path) -> str:
     """Save segments to a tab-separated CSV file."""
-    if not segments:
-        raise ValueError("Cannot save empty segments list")
-
-    df = pd.DataFrame(segments)
-    df = df[df["text"].astype(str).str.strip() != ""]
-    if df.empty:
-        raise ValueError("No valid segments to save (all were empty)")
+    if segments:
+        df = pd.DataFrame(segments)
+        df = df[df["text"].astype(str).str.strip() != ""]
+    else:
+        df = pd.DataFrame(columns=["start_time", "end_time", "text"])
 
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
@@ -62,7 +60,10 @@ def save_to_csv(segments: list, output_path: str, temporary_directory: str | Pat
         os.replace(temporary_output, output)
     finally:
         temporary_output.unlink(missing_ok=True)
-    logger.info(f"Saved {len(df)} segments to {output_path}")
+    if df.empty:
+        logger.info(f"No speech was transcribed; saved an empty transcript to {output_path}")
+    else:
+        logger.info(f"Saved {len(df)} segments to {output_path}")
     return output_path
 
 

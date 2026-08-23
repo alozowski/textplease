@@ -2,6 +2,7 @@ import os
 from unittest.mock import Mock
 
 import yaml
+import pytest
 
 from textplease import gradio_ui
 
@@ -135,6 +136,56 @@ def test_same_name_jobs_keep_immutable_results(monkeypatch, tmp_path):
     worker.is_running.return_value = False
     gradio_ui.clear_transcription(worker, output_dir, second)
     gradio_ui.clear_transcription(worker, output_dir, first)
+
+
+def test_completion_reports_successful_empty_transcript(monkeypatch, tmp_path):
+    output_path = tmp_path / "transcript.csv"
+    output_path.write_text("start_time\tend_time\ttext\n", encoding="utf-8")
+    config_path = tmp_path / "config.yaml"
+    config_path.touch()
+    preview = Mock(return_value="empty preview")
+    worker = Mock()
+    worker.result.return_value = (True, None)
+    monkeypatch.setattr(gradio_ui, "preview_transcript", preview)
+    run = {
+        "job_id": 7,
+        "output_path": output_path,
+        "config_path": config_path,
+        "log_path": tmp_path / "run.log",
+        "started": 0,
+    }
+
+    result = gradio_ui.check_completion(worker, run, None)
+
+    assert result[0].startswith("✅ No speech was transcribed.")
+    assert result[4] == str(output_path)
+    preview.assert_called_once_with(True, str(output_path))
+
+
+@pytest.mark.parametrize(
+    ("contents", "expected_error"),
+    [
+        ("", "could not read transcript"),
+        ("garbage\n", "invalid transcript columns"),
+    ],
+)
+def test_completion_reports_invalid_transcript_as_failure(tmp_path, contents, expected_error):
+    output_path = tmp_path / "transcript.csv"
+    output_path.write_text(contents, encoding="utf-8")
+    worker = Mock()
+    worker.result.return_value = (True, None)
+    run = {
+        "job_id": 7,
+        "output_path": output_path,
+        "config_path": tmp_path / "config.yaml",
+        "log_path": tmp_path / "run.log",
+        "started": 0,
+    }
+
+    result = gradio_ui.check_completion(worker, run, None)
+
+    assert result[0].startswith(f"❌ Transcription failed ({expected_error}")
+    assert result[4] is None
 
 
 def test_clear_cancels_job_and_deletes_artifacts(tmp_path):

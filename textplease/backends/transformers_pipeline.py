@@ -18,10 +18,6 @@ from textplease.utils.audio_utils import TARGET_SAMPLE_RATE, load_pcm_wav
 
 logger = logging.getLogger(__name__)
 
-SAMPLE_RATE = TARGET_SAMPLE_RATE
-# Padding (seconds) added around each VAD speech boundary to avoid clipping words.
-_SPEECH_PAD_S = 0.1
-
 warnings.filterwarnings("ignore", message=".*Whisper did not predict an ending timestamp.*")
 warnings.filterwarnings("ignore", message=".*attention mask is not set.*")
 
@@ -54,29 +50,36 @@ def _load_model_and_processor(
 def _get_speech_segments(
     audio_array: np.ndarray,
     pause_threshold: float,
-) -> list[dict[str, float]]:
-    """Run Silero-VAD and return speech segment boundaries in seconds."""
+) -> list[dict[str, int]]:
+    """Run Silero VAD and return bounded speech intervals in source samples."""
     vad_model = load_silero_vad()
     audio_tensor = torch.from_numpy(audio_array)
 
-    segments = get_speech_timestamps(
+    detected = get_speech_timestamps(
         audio_tensor,
         vad_model,
         threshold=0.5,
-        sampling_rate=SAMPLE_RATE,
+        sampling_rate=TARGET_SAMPLE_RATE,
         min_speech_duration_ms=250,
         min_silence_duration_ms=int(pause_threshold * 1000),
-        speech_pad_ms=int(_SPEECH_PAD_S * 1000),
-        return_seconds=True,
+        speech_pad_ms=100,
+        return_seconds=False,
     )
 
-    total_s = len(audio_array) / SAMPLE_RATE
-    speech_s = sum(s["end"] - s["start"] for s in segments)
+    segments: list[dict[str, int]] = []
+    for segment in detected:
+        start = max(0, int(segment["start"]))
+        end = min(len(audio_array), int(segment["end"]))
+        if end > start:
+            segments.append({"start": start, "end": end})
+
+    total_s = len(audio_array) / TARGET_SAMPLE_RATE
+    speech_s = sum(segment["end"] - segment["start"] for segment in segments) / TARGET_SAMPLE_RATE
     logger.info(
         f"VAD: {len(segments)} speech segments — "
         f"{speech_s:.1f}s / {total_s:.1f}s total ({100 * speech_s / max(total_s, 1):.0f}% speech)"
     )
-    return [{"start": float(segment["start"]), "end": float(segment["end"])} for segment in segments]
+    return segments
 
 
 def _transcribe_speech_segments(
@@ -95,7 +98,7 @@ def _transcribe_speech_segments(
         truncation=False,
         padding="longest",
         return_attention_mask=True,
-        sampling_rate=SAMPLE_RATE,
+        sampling_rate=TARGET_SAMPLE_RATE,
     )
     input_features = inputs.input_features.to(device=device, dtype=torch_dtype)
     attention_mask = inputs.get("attention_mask")
@@ -155,25 +158,24 @@ def _transcribe_speech_segments(
 def _transcribe_chunks(
     model: WhisperForConditionalGeneration,
     processor: WhisperProcessor,
-    chunks: list[tuple[int, float, float, np.ndarray]],
-    total_chunks: int,
+    chunks: list[tuple[int, int, np.ndarray]],
     batch_size: int,
     device: str,
     language: str,
-    progress_label: str,
 ) -> list[_WhisperOffset]:
     all_offsets: list[_WhisperOffset] = []
     for batch_start in range(0, len(chunks), batch_size):
         batch = chunks[batch_start : batch_start + batch_size]
-        first_i, first_start_s, _, _ = batch[0]
-        last_i, _, last_end_s, _ = batch[-1]
+        first_start, _, _ = batch[0]
+        _, last_end, _ = batch[-1]
+        last_index = batch_start + len(batch)
         logger.info(
-            f"{progress_label} {first_i + 1}/{total_chunks}: "
-            f"batch {first_i + 1}-{last_i + 1} "
-            f"[{first_start_s:.2f}s → {last_end_s:.2f}s]"
+            f"Transcribing speech segment {batch_start + 1}/{len(chunks)}: "
+            f"batch {batch_start + 1}-{last_index} "
+            f"[{first_start / TARGET_SAMPLE_RATE:.2f}s → {last_end / TARGET_SAMPLE_RATE:.2f}s]"
         )
 
-        audio_chunks = [chunk for _, _, _, chunk in batch]
+        audio_chunks = [chunk for _, _, chunk in batch]
         try:
             batch_offsets = _transcribe_speech_segments(model, processor, audio_chunks, device, language)
         except torch.OutOfMemoryError:
@@ -186,7 +188,8 @@ def _transcribe_chunks(
                 _transcribe_speech_segments(model, processor, [chunk], device, language)[0] for chunk in audio_chunks
             ]
 
-        for (_, start_s, _, _), offsets in zip(batch, batch_offsets, strict=True):
+        for (start, _, _), offsets in zip(batch, batch_offsets, strict=True):
+            start_s = start / TARGET_SAMPLE_RATE
             for offset in offsets:
                 ts = offset.get("timestamp", (0.0, 0.0))
                 if len(ts) == 2 and ts[0] is not None and ts[1] is not None:
@@ -194,52 +197,6 @@ def _transcribe_chunks(
             all_offsets.extend(offsets)
 
     return all_offsets
-
-
-def _transcribe_long_form(
-    model: WhisperForConditionalGeneration,
-    processor: WhisperProcessor,
-    audio_array: np.ndarray,
-    device: str,
-    language: str,
-    pause_threshold: float,
-    batch_size: int,
-) -> list[_WhisperOffset]:
-    """Run VAD segmentation and batched transcription with offset timestamps."""
-    speech_segments = _get_speech_segments(audio_array, pause_threshold)
-    if not speech_segments:
-        logger.warning("VAD found no speech in audio — returning empty transcript")
-        return []
-
-    total_s = len(audio_array) / SAMPLE_RATE
-    n = len(speech_segments)
-
-    chunks: list[tuple[int, float, float, np.ndarray]] = []
-    for i, seg in enumerate(speech_segments):
-        start_s = max(0.0, float(seg["start"]))
-        end_s = min(total_s, float(seg["end"]))
-
-        start_sample = int(start_s * SAMPLE_RATE)
-        end_sample = int(end_s * SAMPLE_RATE)
-        chunk = audio_array[start_sample:end_sample]
-
-        # Skip chunks shorter than 0.5 s — too short for Whisper to process reliably.
-        if len(chunk) < SAMPLE_RATE * 0.5:
-            logger.debug(f"Skipping sub-0.5s chunk at {start_s:.2f}s")
-            continue
-
-        chunks.append((i, start_s, end_s, chunk))
-
-    return _transcribe_chunks(
-        model,
-        processor,
-        chunks,
-        n,
-        batch_size,
-        device,
-        language,
-        "Transcribing speech segment",
-    )
 
 
 def _offsets_to_segments(offsets: list[_WhisperOffset]) -> list[dict[str, str]]:
@@ -252,34 +209,6 @@ def _offsets_to_segments(offsets: list[_WhisperOffset]) -> list[dict[str, str]]:
             continue
         segments.extend(_split_chunk_by_sentences(text, float(ts[0]), float(ts[1])))
     return segments
-
-
-def _transcribe_with_fallbacks(
-    model: WhisperForConditionalGeneration,
-    processor: WhisperProcessor,
-    audio_array: np.ndarray,
-    device: str,
-    language: str,
-    pause_threshold: float = 2.0,
-    batch_size: int = 1,
-) -> list[dict[str, str]]:
-    """VAD + model.generate() with fallback to sentence splitting."""
-    offsets = _transcribe_long_form(
-        model,
-        processor,
-        audio_array,
-        device,
-        language,
-        pause_threshold,
-        batch_size,
-    )
-    segments = _offsets_to_segments(offsets)
-    if segments:
-        logger.info(f"Generated {len(segments)} segments via VAD + model.generate()")
-        return segments
-    logger.warning("VAD + model.generate() returned no segments; falling back to sentence splitting")
-
-    return _fallback_sentence_segmentation(model, processor, audio_array, device, language, batch_size)
 
 
 def transcribe(
@@ -295,61 +224,35 @@ def transcribe(
         raise ValueError("Whisper batch size must be positive")
 
     audio_array = load_pcm_wav(audio_path)
+    speech_segments = _get_speech_segments(audio_array, pause_threshold)
+    if not speech_segments:
+        logger.info("No speech detected")
+        return []
+
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
 
     model, processor = _load_model_and_processor(model_name, device)
-    return _transcribe_with_fallbacks(
-        model,
-        processor,
-        audio_array,
-        device,
-        language,
-        pause_threshold,
-        batch_size,
-    )
-
-
-def _fallback_sentence_segmentation(
-    model: WhisperForConditionalGeneration,
-    processor: WhisperProcessor,
-    audio_array: np.ndarray,
-    device: str,
-    language: str = "en",
-    batch_size: int = 1,
-) -> list[dict[str, str]]:
-    """Last resort when VAD finds no speech: fixed 28s chunks with timestamp offsets."""
-    logger.info("Using fallback chunked segmentation (no VAD)")
-    chunk_samples = int(28 * SAMPLE_RATE)
-    n_chunks = max(1, (len(audio_array) + chunk_samples - 1) // chunk_samples)
-
-    chunks: list[tuple[int, float, float, np.ndarray]] = []
-    for i, start_sample in enumerate(range(0, len(audio_array), chunk_samples)):
-        start_s = start_sample / SAMPLE_RATE
-        end_sample = min(start_sample + chunk_samples, len(audio_array))
-        chunk = audio_array[start_sample:end_sample]
-
-        if len(chunk) < SAMPLE_RATE * 0.5:
-            continue
-
-        chunks.append((i, start_s, end_sample / SAMPLE_RATE, chunk))
-
-    all_offsets = _transcribe_chunks(
+    chunks = [
+        (segment["start"], segment["end"], audio_array[segment["start"] : segment["end"]])
+        for segment in speech_segments
+    ]
+    offsets = _transcribe_chunks(
         model,
         processor,
         chunks,
-        n_chunks,
         batch_size,
         device,
         language,
-        "Fallback chunk",
     )
+    segments = _offsets_to_segments(offsets)
+    if segments:
+        logger.info(f"Generated {len(segments)} segments via VAD + model.generate()")
+        return segments
 
-    segments = _offsets_to_segments(all_offsets)
-    if not segments:
-        logger.warning("Fallback chunked segmentation returned no segments")
-    return segments
+    logger.info("Whisper returned no usable timestamped text for detected speech")
+    return []
 
 
 def _split_chunk_by_sentences(text: str, start_time: float, end_time: float) -> list[dict[str, str]]:
