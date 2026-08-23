@@ -1,0 +1,2 @@
+evaluation/fixtures/ami-ES2002b-30m.flac filter=lfs diff=lfs merge=lfs -text
+evaluation/fixtures/ami-EN2001a-60m.flac filter=lfs diff=lfs merge=lfs -text

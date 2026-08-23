@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "random_seed": 0,
+  "model": {
+    "repository": "openai/whisper-large-v3",
+    "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1"
+  },
+  "pipeline": {
+    "pause_threshold": 2.0,
+    "similarity_threshold": 1.0,
+    "embedding_model": "all-MiniLM-L6-v2",
+    "min_segment_words": 1,
+    "min_segment_chars": 1,
+    "max_segment_words": 100,
+    "performance": {
+      "similarity_batch_size": 32,
+      "chunk_size": 1000
+    }
+  },
+  "normalization": {
+    "unicode_form": "NFKC",
+    "casefold": true,
+    "punctuation_to_space": true,
+    "collapse_whitespace": true
+  },
+  "boundary_collar_ms": 250,
+  "short_case_max_duration_ms": 1000,
+  "gates": {
+    "wer": {"enabled": false, "max": 0.1},
+    "cer": {"enabled": false, "max": 0.05},
+    "short_exact_match_rate": {"enabled": true, "min": 1.0},
+    "non_speech_nonempty_cases": {"enabled": true, "max": 0},
+    "non_speech_error_cases": {"enabled": true, "max": 0},
+    "missed_speech_rate": {"enabled": false, "max": 0.05},
+    "false_alarm_rate": {"enabled": false, "max": 0.05},
+    "boundary_precision": {"enabled": false, "min": 0.95},
+    "boundary_recall": {"enabled": false, "min": 0.95},
+    "timestamp_violation_cases": {"enabled": true, "max": 0},
+    "parity_mismatch_cases": {"enabled": false, "max": 0},
+    "rtf_median": {"enabled": false, "max": 1.0},
+    "peak_rss_mb_max": {"enabled": false, "max": 16384},
+    "peak_cuda_mb_max": {"enabled": false, "max": 16384}
+  }
+}

@@ -1,15 +1,16 @@
 # text, please!
 
-**textplease** converts long-form audio and video into accurate, structured transcripts with semantic segmentation and precise timestamps.
+**textplease** converts local audio and video into timed, structured transcripts with open-source Whisper models.
 
 ## Features
 
 - Semantic segmentation – splits transcripts into coherent segments by pause and topic rather than fixed time windows.
-- Long-form ready – handles hours of audio without quality degradation.
-- Precise timestamps – every segment carries accurate start and end times.
+- Long-form path – uses non-truncated, timestamp-based Whisper decoding, with published 30- and 60-minute meeting results.
+- Timed output – every segment carries a start and end time. Timestamp accuracy is tracked in the quality evaluation.
 - Open-source models – runs state-of-the-art ASR via Hugging Face Transformers.
 - Simple I/O – YAML configuration in, tab-separated `.csv` out.
 - Local processing – audio never leaves your machine.
+- Reproducible evidence – a pinned, licensed seed corpus records known speech and silence failures before tuning.
 
 ## Quick Start
 
@@ -85,14 +86,97 @@ clears its cache when the server restarts. Hugging Face model caches persist for
 job's transcript, effective configuration, and run log in a private directory under `output/`. Cancel removes temporary
 PCM. Clear deletes that job directory and its retained artifacts. Download anything you need before clearing the form.
 
+## Quality evidence
+
+The committed evaluation is a small English regression set, not a production accuracy benchmark. It covers generated
+silence, real rain and music, sub-second speech, a spoken name, two clean LibriSpeech excerpts, and continuous 30- and
+60-minute AMI meeting excerpts with independent manual transcripts. Inference uses the public TextPlease pipeline and a
+pinned Whisper Large v3 snapshot. See the [versioned baseline](evaluation/BASELINE.md),
+[manifest](evaluation/manifest.jsonl), and [protocol](evaluation/protocol.json).
+
+The protocol is a diagnostic fidelity profile. Its similarity threshold of 1.0 and minimum segment sizes of one preserve
+recognition output for analysis, unlike the current UI-default paragraph settings of 0.75, 3 words, and 15 characters.
+Two independent fresh processes produced identical transcripts, timestamps, and errors with seed 0 on the pinned MPS
+stack. PyTorch does not guarantee the same result across software releases or devices.
+
+In the published run, the 30-minute case completed in 274.7 seconds at RTF 0.153 and 2639 MiB peak RSS. The separate
+60-minute case completed in 535.5 seconds at RTF 0.149 and 3466 MiB peak RSS. These measurements are machine-specific,
+and both long cases completed without timestamp-bound violations. Held-out gates still fail because both acceptance
+non-speech fixtures emit text and silence exceeds its source timestamp bound. The acceptance short utterance passes,
+while the separate 437 ms tuning word remains a known missed-speech failure.
+
+The evaluator downloads neither audio nor models. Prepare the exact model snapshot while online:
+
+```bash
+uv run --locked --no-dev hf download openai/whisper-large-v3 \
+  --revision 06f233fe06e710322aca913c1bc4249a0d71fce1 \
+  --include "*.json" \
+  --include "*.txt" \
+  --include model.safetensors
+```
+
+Pass the local snapshot path printed by that command to the evaluator:
+
+```bash
+git lfs pull --include="evaluation/fixtures/ami-ES2002b-30m.flac,evaluation/fixtures/ami-EN2001a-60m.flac"
+
+uv run --locked python scripts/evaluate_audio_quality.py infer \
+  --manifest evaluation/manifest.jsonl \
+  --protocol evaluation/protocol.json \
+  --model-snapshot <local-snapshot-path> \
+  --device auto \
+  --batch-size 1 \
+  --output /tmp/textplease-quality-predictions.json
+
+uv run --locked python scripts/evaluate_audio_quality.py score \
+  --manifest evaluation/manifest.jsonl \
+  --protocol evaluation/protocol.json \
+  --predictions /tmp/textplease-quality-predictions.json \
+  --output evaluation/BASELINE.md
+```
+
+For a same-environment repeatability check, run `infer` again to a second predictions path and add
+`--parity-predictions <second-path>` to `score`.
+The `score` command exits with status 1 when an enabled gate fails. That is expected for this published pre-fix baseline.
+
+Batch size 1 is the reference path. The report includes WER and CER edit counts, short-utterance exact match,
+non-speech output and error counts, end-to-end interval and boundary measurements, timestamp invariants, real-time
+factor, and peak memory. Release thresholds are versioned in the protocol and evaluate only held-out acceptance rows.
+The final intervals include VAD, recognition, and post-processing behavior, so they are not presented as pure VAD
+metrics. The final text also includes cleanup behavior and is not a raw Whisper-decoder fidelity measurement. AMI
+meeting WER uses one chronological word stream for overlapping speakers and is not diarization-aware.
+
+### Evaluation audio credits
+
+| Fixture | License | Source and credit |
+| --- | --- | --- |
+| `silence-5s.wav` | CC0 1.0 | Generated for TextPlease with [FFmpeg `anullsrc`](https://ffmpeg.org/ffmpeg-filters.html#anullsrc) |
+| `Rain.ogg` | Public domain | Recorded by Wikimedia Commons user ジダネ, from [Rain.ogg revision 597184901](https://commons.wikimedia.org/w/index.php?title=File:Rain.ogg&oldid=597184901) |
+| `Greensleaves.ogg` | Public domain | Performed and recorded by Wikimedia Commons user Rv87, from [Greensleaves.ogg revision 845754359](https://commons.wikimedia.org/w/index.php?title=File:Greensleaves.ogg&oldid=845754359) |
+| `En-uk-ear.ogg` | Public domain | Spoken and recorded by Wikimedia Commons user Chris Melville, from [En-uk-ear.ogg revision 1229077824](https://commons.wikimedia.org/w/index.php?title=File:En-uk-ear.ogg&oldid=1229077824) |
+| `En-au-John.ogg` | CC BY-SA 4.0 | Spoken and recorded by Commander Keane, from [En-au-John.ogg revision 724849560](https://commons.wikimedia.org/w/index.php?title=File:En-au-John.ogg&oldid=724849560) |
+| `sample1.flac` and `sample2.flac` | CC BY 4.0 | [LibriSpeech ASR Corpus](https://www.openslr.org/12/) by Vassil Panayotov, Guoguo Chen, Daniel Povey, and Sanjeev Khudanpur, with source samples hosted by [Hugging Face](https://huggingface.co/docs/hub/en/models-widgets-examples#automatic-speech-recognition) |
+| `ami-ES2002b-30m.flac` and `ami-EN2001a-60m.flac` | CC BY 4.0 | Continuous, disjoint excerpts from the [AMI Meeting Corpus](https://groups.inf.ed.ac.uk/ami/corpus/) by the AMI Consortium. Text and speech intervals come from [manual annotations v1.6.2](https://groups.inf.ed.ac.uk/ami/download/) |
+
+The project code is MIT licensed. Evaluation media retain the licenses recorded above and in the manifest. The manifest
+records source provenance, license, attribution, duration, split, reference, and SHA-256 for every fixture. The long
+fixtures are exact 30- and 60-minute continuous excerpts from different AMI meetings. Each cut starts and ends inside
+gaps containing no lexical word annotations. They establish real meeting completion and resource evidence, plus
+overlap-sensitive transcript and end-to-end interval regressions. They do not substitute for natural podcast or
+monologue evidence or independently labeled acoustic boundaries.
+
+Slow and fast spontaneous speech, noisy microphones, multilingual audio, natural long monologues, independently
+annotated boundaries, intentional repetition, digits, and cleanup-target phrases are still missing. TextPlease does not
+claim validated quality for those inputs until their rows exist in the baseline.
+
 ## How It Works
 
 textplease runs a modular pipeline:
 
 1. Audio processing – extracts and normalizes audio from the input file.
 2. ASR transcription – converts speech to text with multilingual Whisper models.
-   - Language is selectable (97+ languages).
-   - Silero-VAD removes silence before transcription, cutting hallucinations at the source.
+   - Language is selectable from the languages supported by the configured Whisper checkpoint. The seed evaluation currently validates English only.
+   - Silero-VAD proposes speech regions before transcription. Authoritative no-speech handling remains a tracked release blocker.
    - Whisper batches VAD chunks on CUDA while retaining the same generation and timestamp settings.
    - Whisper runs via `model.generate()` with temperature fallback and compression-ratio quality gating.
    - A post-transcription filter removes known Whisper hallucination phrases.
@@ -121,7 +205,7 @@ flowchart TD
 
 Transcription runs on multilingual Whisper models via Hugging Face Transformers:
 
-- [openai/whisper-large-v3](https://huggingface.co/openai/whisper-large-v3) — multilingual, 97+ languages
+- [openai/whisper-large-v3](https://huggingface.co/openai/whisper-large-v3) — multilingual with 99 languages listed by the model publisher. TextPlease currently publishes quality evidence only for the English seed set.
 
 Each model must be prefetched or provided as a local directory before transcription starts.
 
