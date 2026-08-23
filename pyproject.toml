@@ -23,6 +23,7 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+  "jiwer==4.0.0",
   "pytest",
   "pytest-asyncio",
   "ruff==0.12.0",
