@@ -1,3 +1,4 @@
+import os
 import csv
 import logging
 from pathlib import Path
@@ -39,6 +40,33 @@ def test_similarity_threshold_one_skips_embedding_model(monkeypatch, tmp_path):
 
     sentence_transformer.assert_not_called()
     assert [row["text"] for row in rows] == ["Short fragment"]
+
+
+def test_no_speech_writes_header_only_transcript(monkeypatch, tmp_path, caplog):
+    input_path = tmp_path / "input.wav"
+    input_path.touch()
+    output_path = tmp_path / "output.csv"
+    output_path.write_text("previous transcript", encoding="utf-8")
+    sentence_transformer = Mock(side_effect=AssertionError("Embedding model should not load"))
+
+    monkeypatch.setattr(pipeline, "transcribe_audio", lambda *args, **kwargs: [])
+    monkeypatch.setattr(pipeline, "SentenceTransformer", sentence_transformer)
+    monkeypatch.setattr(segmenter, "SentenceTransformer", sentence_transformer)
+
+    with caplog.at_level(logging.INFO):
+        pipeline.run_transcription_pipeline(
+            {
+                "input_path": str(input_path),
+                "output_path": str(output_path),
+                "model_name": "test-model",
+            }
+        )
+
+    assert output_path.read_text(encoding="utf-8") == "start_time\tend_time\ttext\n"
+    if os.name != "nt":
+        assert output_path.stat().st_mode & 0o777 == 0o600
+    assert "No speech was transcribed" in caplog.text
+    sentence_transformer.assert_not_called()
 
 
 def test_pipeline_rejects_input_as_output_before_transcription(monkeypatch, tmp_path):

@@ -386,16 +386,8 @@ def _infer(
             )
             sampler.start()
             started = time.perf_counter()
-            case_error: dict | None = None
             try:
                 run_transcription_pipeline(config)
-            except ValueError as error:
-                if str(error) not in {
-                    "Cannot save empty segments list",
-                    "No valid segments to save (all were empty)",
-                }:
-                    raise
-                case_error = {"kind": "empty_output", "message": str(error)}
             finally:
                 if cuda_metrics:
                     torch.cuda.synchronize()
@@ -403,14 +395,14 @@ def _infer(
                 stop_event.set()
                 sampler.join()
 
-            segments = [] if case_error is not None else _parse_tsv(transcript_path)
+            segments = _parse_tsv(transcript_path)
             peak_cuda_bytes = torch.cuda.max_memory_allocated() if cuda_metrics else None
             predictions.append(
                 {
                     "id": case["id"],
                     "audio_sha256": actual_checksum,
                     "segments": segments,
-                    "error": case_error,
+                    "error": None,
                     "elapsed_seconds": elapsed_seconds,
                     "rtf": elapsed_seconds / (case["duration_ms"] / 1000),
                     "peak_rss_bytes": peak_rss[0],
@@ -1136,7 +1128,7 @@ def _score(
             "- Pipeline settings are defined by the protocol and may differ from application defaults; interpret results only for the recorded configuration.",
             "- CER includes spaces after NFKC, casefolding, punctuation-to-space conversion, and whitespace collapse.",
             "- Peak RSS is sampled for this process and its children, so spikes shorter than the sampling interval may be missed. CUDA memory is PyTorch's peak allocated memory.",
-            "- The first inference case includes cold model loading; later cases may reuse in-process model caches.",
+            "- The first case that loads Whisper includes cold model loading; later cases may reuse in-process model caches.",
             "",
         ]
     )

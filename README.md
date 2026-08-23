@@ -10,7 +10,7 @@
 - Open-source models – runs state-of-the-art ASR via Hugging Face Transformers.
 - Simple I/O – YAML configuration in, tab-separated `.csv` out.
 - Local processing – audio never leaves your machine.
-- Reproducible evidence – a pinned, licensed seed corpus records known speech and silence failures before tuning.
+- Reproducible evidence – a pinned, licensed seed corpus records measured speech, non-speech, and timestamp failures.
 
 ## Quick Start
 
@@ -96,14 +96,15 @@ pinned Whisper Large v3 snapshot. See the [versioned baseline](evaluation/BASELI
 
 The protocol is a diagnostic fidelity profile. Its similarity threshold of 1.0 and minimum segment sizes of one preserve
 recognition output for analysis, unlike the current UI-default paragraph settings of 0.75, 3 words, and 15 characters.
-Two independent fresh processes produced identical transcripts, timestamps, and errors with seed 0 on the pinned MPS
-stack. PyTorch does not guarantee the same result across software releases or devices.
+Two independent fresh processes produced identical normalized text and exact timestamps with matching error states at
+seed 0 on the pinned MPS stack. PyTorch does not guarantee the same result across software releases or devices.
 
-In the published run, the 30-minute case completed in 274.7 seconds at RTF 0.153 and 2639 MiB peak RSS. The separate
-60-minute case completed in 535.5 seconds at RTF 0.149 and 3466 MiB peak RSS. These measurements are machine-specific,
-and both long cases completed without timestamp-bound violations. Held-out gates still fail because both acceptance
-non-speech fixtures emit text and silence exceeds its source timestamp bound. The acceptance short utterance passes,
-while the separate 437 ms tuning word remains a known missed-speech failure.
+In the published run, the 30-minute case completed in 196.2 seconds at RTF 0.109 and 2484 MiB peak RSS with no timestamp
+violation. The separate 60-minute case completed in 408.6 seconds at RTF 0.114 and 3305 MiB peak RSS with one timestamp
+violation. Their WERs were 0.2733 and 0.2280. These measurements are machine-specific. Silence and rain now produce
+successful header-only transcripts without loading Whisper, but held-out instrumental music still emits text. The
+acceptance short name remains exact. The separate 437 ms tuning word now reaches recognition instead of being discarded,
+but its final transcript is inexact and has one timestamp violation.
 
 The evaluator downloads neither audio nor models. Prepare the exact model snapshot while online:
 
@@ -137,7 +138,8 @@ uv run --locked python scripts/evaluate_audio_quality.py score \
 
 For a same-environment repeatability check, run `infer` again to a second predictions path and add
 `--parity-predictions <second-path>` to `score`.
-The `score` command exits with status 1 when an enabled gate fails. That is expected for this published pre-fix baseline.
+The `score` command exits with status 1 when an enabled gate fails. That is expected for the current baseline while the
+music and timestamp gates remain red.
 
 Batch size 1 is the reference path. The report includes WER and CER edit counts, short-utterance exact match,
 non-speech output and error counts, end-to-end interval and boundary measurements, timestamp invariants, real-time
@@ -176,7 +178,7 @@ textplease runs a modular pipeline:
 1. Audio processing – extracts and normalizes audio from the input file.
 2. ASR transcription – converts speech to text with multilingual Whisper models.
    - Language is selectable from the languages supported by the configured Whisper checkpoint. The seed evaluation currently validates English only.
-   - Silero-VAD proposes speech regions before transcription. Authoritative no-speech handling remains a tracked release blocker.
+   - Silero-VAD-negative audio succeeds with an empty transcript and never loads Whisper. Detector-positive non-speech remains a tracked release blocker.
    - Whisper batches VAD chunks on CUDA while retaining the same generation and timestamp settings.
    - Whisper runs via `model.generate()` with temperature fallback and compression-ratio quality gating.
    - A post-transcription filter removes known Whisper hallucination phrases.
@@ -212,6 +214,8 @@ Each model must be prefetched or provided as a local directory before transcript
 ## Output Format
 
 Transcripts are tab-separated `.csv` files:
+
+A successful result with no transcribed speech contains only the column header.
 
 | start_time | end_time | text                   |
 | ---------- | -------- | ---------------------- |

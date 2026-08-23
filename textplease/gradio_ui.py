@@ -223,16 +223,29 @@ def check_completion(
     )
 
     if error is None and output_path.exists():
-        return (
-            f"✅ Transcription complete!\n"
-            f"📄 Transcript saved to: `{output_path}`\n"
-            f"🛠️ Configuration saved to: `{run['config_path']}`",
-            gr.update(value=str(output_path), visible=True),
-            gr.update(interactive=True, value=True),
-            preview_transcript(True, str(output_path)),
-            str(output_path),
-            *completed,
-        )
+        try:
+            transcript = pd.read_csv(output_path, sep="\t", nrows=1)
+        except (OSError, UnicodeError, pd.errors.EmptyDataError, pd.errors.ParserError) as output_error:
+            error = f"could not read transcript: {output_error}"
+        else:
+            required_columns = ["start_time", "end_time", "text"]
+            if list(transcript.columns[:3]) != required_columns:
+                error = f"invalid transcript columns: expected {', '.join(required_columns)}"
+            else:
+                no_speech = transcript.empty
+                status = (
+                    f"✅ No speech was transcribed.\n📄 Empty transcript saved to: `{output_path}`"
+                    if no_speech
+                    else f"✅ Transcription complete!\n📄 Transcript saved to: `{output_path}`"
+                )
+                return (
+                    f"{status}\n🛠️ Configuration saved to: `{run['config_path']}`",
+                    gr.update(value=str(output_path), visible=True),
+                    gr.update(interactive=True, value=True),
+                    preview_transcript(True, str(output_path)),
+                    str(output_path),
+                    *completed,
+                )
 
     if error == CANCELLED_ERROR:
         status = "🛑 Transcription cancelled"
@@ -323,7 +336,7 @@ def preview_transcript(show: bool, file_path: str | None):
         if df.empty:
             return gr.update(
                 visible=True,
-                value=[["Transcript is empty"]],
+                value=[["No speech was transcribed"]],
             )
 
         head = df.head(10)

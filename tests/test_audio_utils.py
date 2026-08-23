@@ -49,26 +49,6 @@ def _wav_props(path: str) -> tuple[int, int, int]:
         return w.getnchannels(), w.getframerate(), w.getsampwidth()
 
 
-def _capture_transcription_audio(monkeypatch, audio_path: Path) -> np.ndarray:
-    captured_audio = None
-
-    monkeypatch.setattr(
-        transformers_pipeline,
-        "_load_model_and_processor",
-        lambda model_name, device: (object(), object()),
-    )
-
-    def capture_audio(model, processor, audio_array, device, language, pause_threshold, batch_size):
-        nonlocal captured_audio
-        captured_audio = audio_array
-        return []
-
-    monkeypatch.setattr(transformers_pipeline, "_transcribe_with_fallbacks", capture_audio)
-    assert transformers_pipeline.transcribe(str(audio_path), "test-model", "cpu") == []
-    assert captured_audio is not None
-    return captured_audio
-
-
 @pytest.mark.parametrize("ext", [".ogg", ".m4a"])
 @requires_ffmpeg
 def test_non_wav_converts_to_mono_16k(tmp_path, ext):
@@ -125,20 +105,14 @@ def test_mono_16k_float_wav_is_reencoded_as_pcm16(tmp_path):
 def test_whisper_adapter_normalizes_media_before_transcription(monkeypatch, tmp_path):
     src = _make_audio(tmp_path / "clip.ogg")
 
-    captured_audio = None
-
+    detector = Mock(return_value=[])
+    monkeypatch.setattr(transformers_pipeline, "load_silero_vad", lambda: object())
+    monkeypatch.setattr(transformers_pipeline, "get_speech_timestamps", detector)
     monkeypatch.setattr(
         transformers_pipeline,
         "_load_model_and_processor",
-        lambda model_name, device: (object(), object()),
+        Mock(side_effect=AssertionError("Whisper must not load for VAD-negative audio")),
     )
-
-    def capture_audio(model, processor, audio_array, device, language, pause_threshold, batch_size):
-        nonlocal captured_audio
-        captured_audio = audio_array
-        return []
-
-    monkeypatch.setattr(transformers_pipeline, "_transcribe_with_fallbacks", capture_audio)
 
     work_directory = tmp_path / "temporary"
     assert (
@@ -151,7 +125,7 @@ def test_whisper_adapter_normalizes_media_before_transcription(monkeypatch, tmp_
         == []
     )
 
-    assert captured_audio is not None
+    captured_audio = detector.call_args.args[0].numpy()
     assert captured_audio.dtype == np.float32
     assert captured_audio.ndim == 1
     assert len(captured_audio) == 16000
@@ -168,7 +142,17 @@ def test_pcm_decoder_preserves_signed_sample_scale(monkeypatch, tmp_path):
         audio_file.setframerate(16000)
         audio_file.writeframes(values.tobytes())
 
-    samples = _capture_transcription_audio(monkeypatch, audio_path)
+    detector = Mock(return_value=[])
+    monkeypatch.setattr(transformers_pipeline, "load_silero_vad", lambda: object())
+    monkeypatch.setattr(transformers_pipeline, "get_speech_timestamps", detector)
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "_load_model_and_processor",
+        Mock(side_effect=AssertionError("Whisper must not load for VAD-negative audio")),
+    )
+
+    assert transformers_pipeline.transcribe(str(audio_path), "test-model", "cpu") == []
+    samples = detector.call_args.args[0].numpy()
 
     np.testing.assert_allclose(samples, [-1.0, -0.5, 0.0, 0.5, 0.9999695])
 
@@ -199,6 +183,12 @@ def test_missing_whisper_model_fails_without_network(monkeypatch, tmp_path):
 
     connect = Mock(side_effect=AssertionError("Model loading attempted a network connection"))
     monkeypatch.setattr(socket.socket, "connect", connect)
+    monkeypatch.setattr(transformers_pipeline, "load_silero_vad", lambda: object())
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "get_speech_timestamps",
+        lambda *args, **kwargs: [{"start": 0, "end": 1}],
+    )
     transformers_pipeline._load_model_and_processor.cache_clear()
     try:
         with pytest.raises(OSError):
