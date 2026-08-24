@@ -6,40 +6,37 @@ from unittest.mock import Mock
 
 import pytest
 
-from textplease import pipeline, segmenter
+from textplease import pipeline
 
 
-def test_similarity_threshold_one_skips_embedding_model(monkeypatch, tmp_path):
+def test_pipeline_preserves_recognized_segments_exactly(monkeypatch, tmp_path):
     input_path = tmp_path / "input.wav"
     input_path.touch()
     output_path = tmp_path / "output.csv"
-    sentence_transformer = Mock(side_effect=AssertionError("Embedding model should not load"))
+    recognized_segments = [
+        {
+            "start_time": "00:00:00.000",
+            "end_time": "00:00:01.000",
+            "text": " Thank you for watching. Next sentence.",
+        },
+        {"start_time": "00:00:01.500", "end_time": "00:00:02.000", "text": "repeat boundary"},
+        {"start_time": "00:00:02.500", "end_time": "00:00:03.000", "text": "repeat boundary stays 世界 "},
+    ]
 
-    monkeypatch.setattr(
-        pipeline,
-        "transcribe_audio",
-        lambda *args, **kwargs: [
-            {"start_time": "00:00:00.000", "end_time": "00:00:01.000", "text": "Short"},
-            {"start_time": "00:00:01.500", "end_time": "00:00:02.000", "text": "fragment"},
-        ],
-    )
-    monkeypatch.setattr(pipeline, "SentenceTransformer", sentence_transformer)
-    monkeypatch.setattr(segmenter, "SentenceTransformer", sentence_transformer)
+    monkeypatch.setattr(pipeline, "transcribe_audio", lambda *args, **kwargs: recognized_segments)
 
     pipeline.run_transcription_pipeline(
         {
             "input_path": str(input_path),
             "output_path": str(output_path),
             "model_name": "test-model",
-            "similarity_threshold": 1.0,
         }
     )
 
     with output_path.open(newline="") as output_file:
         rows = list(csv.DictReader(output_file, delimiter="\t"))
 
-    sentence_transformer.assert_not_called()
-    assert [row["text"] for row in rows] == ["Short fragment"]
+    assert rows == recognized_segments
 
 
 def test_no_speech_writes_header_only_transcript(monkeypatch, tmp_path, caplog):
@@ -47,11 +44,8 @@ def test_no_speech_writes_header_only_transcript(monkeypatch, tmp_path, caplog):
     input_path.touch()
     output_path = tmp_path / "output.csv"
     output_path.write_text("previous transcript", encoding="utf-8")
-    sentence_transformer = Mock(side_effect=AssertionError("Embedding model should not load"))
 
     monkeypatch.setattr(pipeline, "transcribe_audio", lambda *args, **kwargs: [])
-    monkeypatch.setattr(pipeline, "SentenceTransformer", sentence_transformer)
-    monkeypatch.setattr(segmenter, "SentenceTransformer", sentence_transformer)
 
     with caplog.at_level(logging.INFO):
         pipeline.run_transcription_pipeline(
@@ -66,34 +60,6 @@ def test_no_speech_writes_header_only_transcript(monkeypatch, tmp_path, caplog):
     if os.name != "nt":
         assert output_path.stat().st_mode & 0o777 == 0o600
     assert "No speech was transcribed" in caplog.text
-    sentence_transformer.assert_not_called()
-
-
-def test_pause_threshold_only_controls_transcript_grouping(monkeypatch, tmp_path):
-    input_path = tmp_path / "input.wav"
-    input_path.touch()
-    output_path = tmp_path / "output.csv"
-    recognized_segments = [
-        {"start_time": "00:00:00.000", "end_time": "00:00:01.000", "text": "First complete segment."},
-        {"start_time": "00:00:02.000", "end_time": "00:00:03.000", "text": "Second complete segment."},
-    ]
-    transcribe_audio = Mock(return_value=recognized_segments)
-    segment_transcript = Mock(return_value=recognized_segments)
-    monkeypatch.setattr(pipeline, "transcribe_audio", transcribe_audio)
-    monkeypatch.setattr(pipeline, "segment_transcript", segment_transcript)
-
-    pipeline.run_transcription_pipeline(
-        {
-            "input_path": str(input_path),
-            "output_path": str(output_path),
-            "model_name": "test-model",
-            "pause_threshold": 4.5,
-            "similarity_threshold": 1.0,
-        }
-    )
-
-    assert "pause_threshold" not in transcribe_audio.call_args.kwargs
-    assert segment_transcript.call_args.kwargs["pause_threshold"] == 4.5
 
 
 def test_pipeline_rejects_input_as_output_before_transcription(monkeypatch, tmp_path):
@@ -113,6 +79,25 @@ def test_pipeline_rejects_input_as_output_before_transcription(monkeypatch, tmp_
 
     transcribe_audio.assert_not_called()
     assert input_path.read_bytes() == b"original audio"
+
+
+def test_pipeline_rejects_removed_text_mutation_settings(monkeypatch, tmp_path):
+    input_path = tmp_path / "input.wav"
+    input_path.touch()
+    transcribe_audio = Mock()
+    monkeypatch.setattr(pipeline, "transcribe_audio", transcribe_audio)
+
+    with pytest.raises(ValueError, match="Unknown config keys.*similarity_threshold"):
+        pipeline.run_transcription_pipeline(
+            {
+                "input_path": str(input_path),
+                "output_path": str(tmp_path / "output.csv"),
+                "model_name": "test-model",
+                "similarity_threshold": 0.75,
+            }
+        )
+
+    transcribe_audio.assert_not_called()
 
 
 def test_pipeline_rejects_symlinked_output_to_input(monkeypatch, tmp_path):
@@ -192,17 +177,3 @@ def test_atomic_save_failure_preserves_existing_output(monkeypatch, tmp_path):
 
     assert output_path.read_text() == "existing transcript"
     assert not (temporary_directory / "transcript.tsv").exists()
-
-
-def test_short_segment_log_does_not_include_transcript(caplog):
-    private_text = "My private account recovery phrase"
-
-    with caplog.at_level(logging.WARNING):
-        segmenter.post_process_segments(
-            [{"start_time": "00:00:00.000", "end_time": "00:00:01.000", "text": private_text}],
-            min_words=10,
-            min_chars=100,
-        )
-
-    assert "Keeping a short segment that cannot be merged" in caplog.text
-    assert private_text not in caplog.text

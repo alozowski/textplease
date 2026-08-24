@@ -7,21 +7,9 @@ model_name: "openai/whisper-large-v3"
 device: "cpu"   # "auto" for the best available device, "cuda" for NVIDIA, "mps" for Apple Silicon
 language: "en"  # language code (97+ languages supported)
 
-# Segmentation
-similarity_threshold: 0.75  # [0.0–1.0] cosine similarity required to merge two segments
-pause_threshold: 2.0        # pause threshold for ordinary transcript grouping
-min_segment_words: 3        # segments below this are merged with a neighbour
-min_segment_chars: 15       # segments below this are merged with a neighbour
-max_segment_words: 100      # segments above this are split regardless of other settings
-
-# Embedding model used for semantic similarity (segmentation step)
-embedding_model: "all-MiniLM-L6-v2"
-
 # Performance
 performance:
-  whisper_batch_size: 1      # deterministic default, larger batches need model-specific parity checks
-  similarity_batch_size: 32  # batch size for pre-encoding segment embeddings
-  chunk_size: 1000           # process segments in chunks of this size (0 = no chunking)
+  whisper_batch_size: 1  # deterministic default, larger batches need model-specific parity checks
 
 # Logging
 log_level: "INFO"  # DEBUG, INFO, WARNING, ERROR

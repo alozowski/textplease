@@ -67,7 +67,7 @@ The [baseline](evaluation/BASELINE.md) has all results and audio credits. The [p
 
 ## How it works
 
-FFmpeg makes mono 16 kHz PCM for Whisper. Silero VAD finds likely speech. A local AudioSet model suppresses output that it rates as music without speech. Whisper transcribes what remains. The app groups the text by pauses, meaning, and length, then writes the tab-separated file.
+FFmpeg makes mono 16 kHz PCM for Whisper. Silero VAD finds likely speech. A local AudioSet model suppresses output that it rates as music without speech. Whisper transcribes what remains. The app writes each retained, nonblank Whisper span and timestamp without rewriting its text.
 
 ## License
 

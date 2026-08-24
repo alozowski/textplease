@@ -215,12 +215,6 @@ def _validate_protocol(protocol: dict) -> None:
         )
     allowed_pipeline_fields = {
         "device",
-        "pause_threshold",
-        "similarity_threshold",
-        "embedding_model",
-        "min_segment_words",
-        "min_segment_chars",
-        "max_segment_words",
         "performance",
     }
     unknown_pipeline_fields = pipeline.keys() - allowed_pipeline_fields
@@ -438,7 +432,6 @@ def _infer(
                 "torch": metadata.version("torch"),
                 "transformers": metadata.version("transformers"),
                 "silero-vad": metadata.version("silero-vad"),
-                "sentence-transformers": metadata.version("sentence-transformers"),
             },
             "rss_sampling_interval_ms": rss_sample_interval_ms,
         },
@@ -649,12 +642,16 @@ def _score_subset(cases: list[dict], predictions: dict[str, dict], protocol: dic
     offset_errors: list[int] = []
     timestamp_violation_cases = 0
     timestamp_violations = 0
+    segment_characters: list[int] = []
+    segment_durations_ms: list[int] = []
     rtfs: list[float] = []
     peak_rss_bytes: list[int] = []
     peak_cuda_bytes: list[int] = []
 
     for case in cases:
         prediction = predictions[case["id"]]
+        segment_characters.extend(len(segment["text"]) for segment in prediction["segments"])
+        segment_durations_ms.extend(segment["end_ms"] - segment["start_ms"] for segment in prediction["segments"])
         normalized_reference = _normalize(case["reference"]["text"])
         normalized_prediction = _normalize(" ".join(segment["text"] for segment in prediction["segments"]))
         reference_interval_data = case["reference"]["speech_intervals_ms"]
@@ -798,6 +795,15 @@ def _score_subset(cases: list[dict], predictions: dict[str, dict], protocol: dic
         "offset_error_p95_ms": _percentile(offset_errors, 0.95),
         "timestamp_violation_cases": timestamp_violation_cases,
         "timestamp_violations": timestamp_violations,
+        "output_segments": len(segment_characters),
+        "segment_characters_median": (float(statistics.median(segment_characters)) if segment_characters else None),
+        "segment_characters_p95": _percentile(segment_characters, 0.95),
+        "segment_characters_max": max(segment_characters) if segment_characters else None,
+        "segment_duration_median_ms": (
+            float(statistics.median(segment_durations_ms)) if segment_durations_ms else None
+        ),
+        "segment_duration_p95_ms": _percentile(segment_durations_ms, 0.95),
+        "segment_duration_max_ms": max(segment_durations_ms) if segment_durations_ms else None,
         "rtf_median": float(statistics.median(rtfs)),
         "rtf_p95": _percentile(rtfs, 0.95),
         "peak_rss_mb_max": max(peak_rss_bytes) / (1024 * 1024),
@@ -1040,6 +1046,13 @@ def _score(
         ("Offset p95 error (ms)", "offset_error_p95_ms"),
         ("Timestamp violation cases", "timestamp_violation_cases"),
         ("Timestamp violations", "timestamp_violations"),
+        ("Output segments", "output_segments"),
+        ("Segment characters median", "segment_characters_median"),
+        ("Segment characters p95", "segment_characters_p95"),
+        ("Segment characters max", "segment_characters_max"),
+        ("Segment duration median (ms)", "segment_duration_median_ms"),
+        ("Segment duration p95 (ms)", "segment_duration_p95_ms"),
+        ("Segment duration max (ms)", "segment_duration_max_ms"),
         ("Parity mismatch cases", "parity_mismatch_cases"),
         ("Median RTF", "rtf_median"),
         ("p95 RTF", "rtf_p95"),
@@ -1077,6 +1090,36 @@ def _score(
                     _format_value(metrics["boundary_recall"]),
                     _format_value(metrics["timestamp_violations"]),
                     _format_value(metrics["rtf_median"]),
+                ]
+            )
+            + " |"
+        )
+
+    lines.extend(
+        [
+            "",
+            "## Segment shape",
+            "",
+            "These descriptive metrics expose transcript line compactness. They are not release gates.",
+            "",
+            "| Case | Segments | Characters median | Characters p95 | Characters max | Duration median (ms) | Duration p95 (ms) | Duration max (ms) |",
+            "|---|---:|---:|---:|---:|---:|---:|---:|",
+        ]
+    )
+    for case in cases:
+        case_metrics = _score_subset([case], predictions, protocol)
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    _escape_markdown(case["id"]),
+                    _format_value(case_metrics["output_segments"]),
+                    _format_value(case_metrics["segment_characters_median"]),
+                    _format_value(case_metrics["segment_characters_p95"]),
+                    _format_value(case_metrics["segment_characters_max"]),
+                    _format_value(case_metrics["segment_duration_median_ms"]),
+                    _format_value(case_metrics["segment_duration_p95_ms"]),
+                    _format_value(case_metrics["segment_duration_max_ms"]),
                 ]
             )
             + " |"
@@ -1148,7 +1191,8 @@ def _score(
             "- Boundary and speech-duration metrics compare final TSV intervals with the references. They are end-to-end output metrics, not direct Silero VAD measurements.",
             "- Activity duration metrics exclude cases whose speech interval reference is null. An em dash means no interval reference was scored.",
             "- Short exact match includes recordings whose total annotated speech is within the configured short duration, even when the surrounding recording is longer.",
-            "- WER and CER score final post-processed text. The current pipeline does not expose raw decoder text, so this report cannot isolate decoder fidelity from later text mutation.",
+            "- WER and CER score the retained decoder spans after text normalization for comparison. The application does not rewrite their nonblank text.",
+            "- Segment-shape metrics count Unicode code points and measured output duration. They describe compactness, not semantic coherence, and have no enabled gates.",
             "- Audio-classifier identity is declared by the protocol and is not mechanically queried from the backend. Source and evaluator metadata aid auditing but do not hash an uncommitted runtime diff.",
             "- Pipeline settings are defined by the protocol and may differ from application defaults; interpret results only for the recorded configuration.",
             "- CER includes spaces after NFKC, casefolding, punctuation-to-space conversion, and whitespace collapse.",

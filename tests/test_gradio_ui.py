@@ -20,11 +20,6 @@ def test_start_transcription_uses_gradio_cached_file(tmp_path):
         worker,
         output_dir,
         str(upload_path),
-        0.75,
-        4.5,
-        100,
-        3,
-        15,
         "en",
         "cpu",
         None,
@@ -40,7 +35,14 @@ def test_start_transcription_uses_gradio_cached_file(tmp_path):
     assert run["output_path"] == workspace_path / "recording_transcript.csv"
     assert run["config_path"] == workspace_path / "config.yaml"
     assert yaml.safe_load(run["config_path"].read_text()) == config
-    assert config["pause_threshold"] == 4.5
+    assert set(config) == {
+        "input_path",
+        "output_path",
+        "model_name",
+        "device",
+        "log_level",
+        "language",
+    }
     if os.name != "nt":
         assert workspace_path.stat().st_mode & 0o777 == 0o700
         assert run["config_path"].stat().st_mode & 0o777 == 0o600
@@ -59,9 +61,7 @@ def test_second_start_preserves_active_job(tmp_path):
     worker.submit.return_value = 7
     worker.is_running.return_value = True
 
-    first = gradio_ui.start_transcription(
-        worker, output_dir, str(upload_path), 0.75, 2.0, 100, 3, 15, "en", "cpu", None
-    )
+    first = gradio_ui.start_transcription(worker, output_dir, str(upload_path), "en", "cpu", None)
     active_run = first[-1]
     config_contents = active_run["config_path"].read_text()
 
@@ -69,11 +69,6 @@ def test_second_start_preserves_active_job(tmp_path):
         worker,
         output_dir,
         str(upload_path),
-        0.75,
-        2.0,
-        100,
-        3,
-        15,
         "en",
         "cpu",
         active_run,
@@ -101,11 +96,6 @@ def test_same_name_jobs_keep_immutable_results(monkeypatch, tmp_path):
         worker,
         output_dir,
         str(upload_path),
-        0.75,
-        2.0,
-        100,
-        3,
-        15,
         "en",
         "cpu",
         None,
@@ -119,11 +109,6 @@ def test_same_name_jobs_keep_immutable_results(monkeypatch, tmp_path):
         worker,
         output_dir,
         str(upload_path),
-        0.75,
-        2.0,
-        100,
-        3,
-        15,
         "en",
         "cpu",
         first,
@@ -202,11 +187,6 @@ def test_clear_cancels_job_and_deletes_artifacts(tmp_path):
         worker,
         output_dir,
         str(upload_path),
-        0.75,
-        2.0,
-        100,
-        3,
-        15,
         "en",
         "cpu",
         None,

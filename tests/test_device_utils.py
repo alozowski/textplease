@@ -31,23 +31,14 @@ def test_pipeline_uses_resolved_device(monkeypatch, tmp_path):
     input_path = tmp_path / "input.wav"
     input_path.touch()
     output_path = tmp_path / "output.csv"
-    embedding_model = object()
-    calls = Mock()
-    sentence_transformer = Mock(return_value=embedding_model)
     transcribe_audio = Mock(
         return_value=[
             {"start_time": "00:00:00.000", "end_time": "00:00:01.000", "text": "First test segment."},
             {"start_time": "00:00:02.000", "end_time": "00:00:03.000", "text": "Second test segment."},
         ]
     )
-    segment_transcript = Mock(side_effect=lambda segments, **kwargs: segments)
-    calls.attach_mock(transcribe_audio, "transcription")
-    calls.attach_mock(sentence_transformer, "embedding")
-
     monkeypatch.setattr(pipeline, "detect_device", lambda device: "cuda")
-    monkeypatch.setattr(pipeline, "SentenceTransformer", sentence_transformer)
     monkeypatch.setattr(pipeline, "transcribe_audio", transcribe_audio)
-    monkeypatch.setattr(pipeline, "segment_transcript", segment_transcript)
 
     pipeline.run_transcription_pipeline(
         {
@@ -62,6 +53,4 @@ def test_pipeline_uses_resolved_device(monkeypatch, tmp_path):
     assert transcribe_audio.call_args.args[2] == "cuda"
     assert "temporary_directory" in transcribe_audio.call_args.kwargs
     assert transcribe_audio.call_args.kwargs["batch_size"] == 1
-    assert sentence_transformer.call_args.kwargs["device"] == "cuda"
-    assert segment_transcript.call_args.kwargs["preferred_device"] == "cuda"
-    assert [entry[0] for entry in calls.mock_calls] == ["transcription", "embedding"]
+    assert output_path.read_text(encoding="utf-8").splitlines()[1].endswith("First test segment.")
