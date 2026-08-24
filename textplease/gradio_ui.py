@@ -428,8 +428,8 @@ def launch_gradio(
                     10.0,
                     step=0.1,
                     value=2.0,
-                    label="Pause Threshold (seconds)",
-                    info="Silence that splits segments (also the Silero-VAD boundary)",
+                    label="Transcript Grouping Pause (seconds)",
+                    info="Used only when grouping recognized segments. Speech detection is automatic.",
                 )
             with gr.Row():
                 max_segment_words = gr.Slider(

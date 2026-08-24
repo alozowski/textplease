@@ -21,7 +21,7 @@ def test_start_transcription_uses_gradio_cached_file(tmp_path):
         output_dir,
         str(upload_path),
         0.75,
-        2.0,
+        4.5,
         100,
         3,
         15,
@@ -40,6 +40,7 @@ def test_start_transcription_uses_gradio_cached_file(tmp_path):
     assert run["output_path"] == workspace_path / "recording_transcript.csv"
     assert run["config_path"] == workspace_path / "config.yaml"
     assert yaml.safe_load(run["config_path"].read_text()) == config
+    assert config["pause_threshold"] == 4.5
     if os.name != "nt":
         assert workspace_path.stat().st_mode & 0o777 == 0o700
         assert run["config_path"].stat().st_mode & 0o777 == 0o600
@@ -232,7 +233,7 @@ def test_show_audio_info_returns_uploaded_file_for_preview(monkeypatch):
     assert details == "🕒 Duration: 12.34s\n📊 Sample rate: 16000 Hz\n🔊 Channels: 1"
 
 
-def test_launch_gradio_disables_network_features(monkeypatch, tmp_path):
+def test_launch_gradio_disables_remote_access_and_analytics(monkeypatch, tmp_path):
     blocks_type = gradio_ui.gr.Blocks
     blocks_init = blocks_type.__init__
     blocks_options = {}

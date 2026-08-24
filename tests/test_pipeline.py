@@ -69,6 +69,33 @@ def test_no_speech_writes_header_only_transcript(monkeypatch, tmp_path, caplog):
     sentence_transformer.assert_not_called()
 
 
+def test_pause_threshold_only_controls_transcript_grouping(monkeypatch, tmp_path):
+    input_path = tmp_path / "input.wav"
+    input_path.touch()
+    output_path = tmp_path / "output.csv"
+    recognized_segments = [
+        {"start_time": "00:00:00.000", "end_time": "00:00:01.000", "text": "First complete segment."},
+        {"start_time": "00:00:02.000", "end_time": "00:00:03.000", "text": "Second complete segment."},
+    ]
+    transcribe_audio = Mock(return_value=recognized_segments)
+    segment_transcript = Mock(return_value=recognized_segments)
+    monkeypatch.setattr(pipeline, "transcribe_audio", transcribe_audio)
+    monkeypatch.setattr(pipeline, "segment_transcript", segment_transcript)
+
+    pipeline.run_transcription_pipeline(
+        {
+            "input_path": str(input_path),
+            "output_path": str(output_path),
+            "model_name": "test-model",
+            "pause_threshold": 4.5,
+            "similarity_threshold": 1.0,
+        }
+    )
+
+    assert "pause_threshold" not in transcribe_audio.call_args.kwargs
+    assert segment_transcript.call_args.kwargs["pause_threshold"] == 4.5
+
+
 def test_pipeline_rejects_input_as_output_before_transcription(monkeypatch, tmp_path):
     input_path = tmp_path / "input.wav"
     input_path.write_bytes(b"original audio")

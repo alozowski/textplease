@@ -123,6 +123,7 @@ def test_no_speech_skips_whisper(monkeypatch):
 
     assert transformers_pipeline.transcribe("input.wav", "test-model", "cpu") == []
     model_loader.assert_not_called()
+    assert detector.call_args.kwargs["min_silence_duration_ms"] == 2000
     assert detector.call_args.kwargs["return_seconds"] is False
 
 

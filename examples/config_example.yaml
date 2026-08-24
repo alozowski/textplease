@@ -9,7 +9,7 @@ language: "en"  # language code (97+ languages supported)
 
 # Segmentation
 similarity_threshold: 0.75  # [0.0–1.0] cosine similarity required to merge two segments
-pause_threshold: 2.0        # silence (seconds) that forces a split; also sets Silero-VAD boundary
+pause_threshold: 2.0        # pause threshold for ordinary transcript grouping
 min_segment_words: 3        # segments below this are merged with a neighbour
 min_segment_chars: 15       # segments below this are merged with a neighbour
 max_segment_words: 100      # segments above this are split regardless of other settings
