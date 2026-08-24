@@ -12,7 +12,6 @@ import pandas as pd
 from pydub.utils import mediainfo
 from pydub.exceptions import CouldntDecodeError
 
-from textplease.pipeline import DEFAULT_EMBEDDING_MODEL
 from textplease.gradio_worker import CANCELLED_ERROR, PersistentPipelineWorker
 from textplease.utils.device_utils import detect_device
 
@@ -76,11 +75,6 @@ def start_transcription(
     worker: PersistentPipelineWorker,
     output_directory: Path,
     audio_file: str | None,
-    similarity_threshold: float,
-    pause_threshold: float,
-    max_segment_words: int,
-    min_segment_words: int,
-    min_segment_chars: int,
     language: str,
     device: str,
     run: dict | None,
@@ -130,12 +124,6 @@ def start_transcription(
         "output_path": str(output_path),
         "model_name": DEFAULT_MODEL,
         "device": device,
-        "similarity_threshold": similarity_threshold,
-        "pause_threshold": pause_threshold,
-        "max_segment_words": max_segment_words,
-        "min_segment_words": min_segment_words,
-        "min_segment_chars": min_segment_chars,
-        "embedding_model": DEFAULT_EMBEDDING_MODEL,
         "log_level": "INFO",
         "language": language,
     }
@@ -199,9 +187,7 @@ def check_completion(
         except OSError:
             log_text = ""
 
-        if "Starting segmentation" in log_text:
-            status = f"⏳ Segmenting transcript... · {elapsed}s elapsed"
-        elif matches := _PROGRESS_RE.findall(log_text):
+        if matches := _PROGRESS_RE.findall(log_text):
             # The log line marks a segment *starting*, so one fewer is actually complete.
             current, total = int(matches[-1][0]), int(matches[-1][1])
             completed = current - 1
@@ -408,51 +394,12 @@ def launch_gradio(
         )
 
         with gr.Accordion("⚙️ Advanced Settings", open=False):
-            with gr.Row():
-                device = gr.Dropdown(
-                    choices=["auto", "cpu", "cuda", "mps"],
-                    value=best_device,
-                    label="Device",
-                    info="Auto: best available | CPU: universal | CUDA: NVIDIA GPU | MPS: Apple Silicon",
-                )
-                similarity_threshold = gr.Slider(
-                    0.0,
-                    1.0,
-                    step=0.01,
-                    value=0.75,
-                    label="Similarity Threshold",
-                    info="Higher = more segments split",
-                )
-                pause_threshold = gr.Slider(
-                    0.0,
-                    10.0,
-                    step=0.1,
-                    value=2.0,
-                    label="Transcript Grouping Pause (seconds)",
-                    info="Used only when grouping recognized segments. Speech detection is automatic.",
-                )
-            with gr.Row():
-                max_segment_words = gr.Slider(
-                    10,
-                    200,
-                    step=5,
-                    value=100,
-                    label="Max Segment Words",
-                )
-                min_segment_words = gr.Slider(
-                    1,
-                    20,
-                    value=3,
-                    step=1,
-                    label="Min Segment Words",
-                )
-                min_segment_chars = gr.Slider(
-                    1,
-                    100,
-                    value=15,
-                    step=1,
-                    label="Min Segment Characters",
-                )
+            device = gr.Dropdown(
+                choices=["auto", "cpu", "cuda", "mps"],
+                value=best_device,
+                label="Device",
+                info="Auto: best available | CPU: universal | CUDA: NVIDIA GPU | MPS: Apple Silicon",
+            )
 
         with gr.Row(equal_height=True):
             language = gr.Dropdown(
@@ -507,11 +454,6 @@ def launch_gradio(
             partial(start_transcription, worker, output_directory),
             inputs=[
                 audio_input,
-                similarity_threshold,
-                pause_threshold,
-                max_segment_words,
-                min_segment_words,
-                min_segment_chars,
                 language,
                 device,
                 run_state,

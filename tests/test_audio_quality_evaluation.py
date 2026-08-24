@@ -136,6 +136,8 @@ def test_score_reports_text_boundary_and_activity_metrics(
     assert "| False-alarm rate | 0.5000 |" in markdown
     assert "| Boundary median error (ms) | 50.0000 |" in markdown
     assert "| Timestamp violations | 0 |" in markdown
+    assert "| Output segments | 1 |" in markdown
+    assert "| speech-case | 1 | 17.0000 | 17.0000 | 17 | 900.0000 | 900.0000 | 900 |" in markdown
 
 
 def test_score_marks_missing_activity_reference_unavailable(

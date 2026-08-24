@@ -176,7 +176,7 @@ def test_transcribe_clamps_offsets_and_preserves_terminal_text(monkeypatch):
     interval_end = 3 * TARGET_SAMPLE_RATE // 4
     audio = np.ones(TARGET_SAMPLE_RATE, dtype=np.float32)
     offsets = [
-        {"text": "Leading", "timestamp": (-1.0, 0.2)},
+        {"text": " Leading. Still leading.", "timestamp": (-1.0, 0.2)},
         {"text": " overlap", "timestamp": (0.1, 0.3)},
         {"text": " terminal", "timestamp": (0.4, None)},
     ]
@@ -208,9 +208,13 @@ def test_transcribe_clamps_offsets_and_preserves_terminal_text(monkeypatch):
     )
 
     assert segments == [
-        {"text": "Leading", "start_time": "00:00:00.250", "end_time": "00:00:00.450"},
-        {"text": "overlap", "start_time": "00:00:00.450", "end_time": "00:00:00.550"},
-        {"text": "terminal", "start_time": "00:00:00.650", "end_time": "00:00:00.750"},
+        {
+            "text": " Leading. Still leading.",
+            "start_time": "00:00:00.250",
+            "end_time": "00:00:00.450",
+        },
+        {"text": " overlap", "start_time": "00:00:00.450", "end_time": "00:00:00.550"},
+        {"text": " terminal", "start_time": "00:00:00.650", "end_time": "00:00:00.750"},
     ]
 
 

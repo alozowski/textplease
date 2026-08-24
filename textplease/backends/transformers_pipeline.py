@@ -1,7 +1,6 @@
 """Whisper ASR backend with local speech and music detection."""
 
 import gc
-import re
 import logging
 from typing import TypedDict
 from functools import lru_cache
@@ -273,11 +272,17 @@ def _offsets_to_segments(offsets: list[_WhisperOffset]) -> list[dict[str, str]]:
     """Convert decoded timestamp offsets to the standard {start_time, end_time, text} format."""
     segments: list[dict[str, str]] = []
     for chunk in offsets:
-        text = chunk.get("text", "").strip()
+        text = chunk.get("text", "")
         ts = chunk.get("timestamp", (0.0, 0.0))
-        if not text or len(ts) != 2 or ts[0] is None or ts[1] is None:
+        if not text.strip() or len(ts) != 2 or ts[0] is None or ts[1] is None:
             continue
-        segments.extend(_split_chunk_by_sentences(text, float(ts[0]), float(ts[1])))
+        segments.append(
+            {
+                "start_time": format_time(float(ts[0])),
+                "end_time": format_time(float(ts[1])),
+                "text": text,
+            }
+        )
     return segments
 
 
@@ -336,29 +341,3 @@ def transcribe(
 
     logger.info("Whisper returned no usable timestamped text for detected speech")
     return []
-
-
-def _split_chunk_by_sentences(text: str, start_time: float, end_time: float) -> list[dict[str, str]]:
-    """Split a segment's text at sentence boundaries, distributing duration proportionally."""
-    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
-    if len(sentences) <= 1:
-        return [{"start_time": format_time(start_time), "end_time": format_time(end_time), "text": text}]
-
-    duration = end_time - start_time
-    total_chars = sum(len(s) for s in sentences)
-    if total_chars == 0:
-        return [{"start_time": format_time(start_time), "end_time": format_time(end_time), "text": text}]
-
-    segments: list[dict[str, str]] = []
-    current_time = start_time
-    for sentence in sentences:
-        end = min(current_time + (len(sentence) / total_chars) * duration, end_time)
-        segments.append(
-            {
-                "start_time": format_time(current_time),
-                "end_time": format_time(end),
-                "text": sentence,
-            }
-        )
-        current_time = end
-    return segments

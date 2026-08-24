@@ -59,7 +59,7 @@ class PersistentPipelineWorker:
         self._next_job_id = 1
         self._results: dict[int, str | None] = {}
         self._temporary_directories: dict[int, tempfile.TemporaryDirectory[str]] = {}
-        self._model_key: tuple[str, str, str] | None = None
+        self._model_key: tuple[str, str] | None = None
         self._last_exitcode: int | None = None
 
     @property
@@ -91,7 +91,6 @@ class PersistentPipelineWorker:
             model_key = (
                 config["model_name"],
                 config.get("device", "cpu"),
-                config.get("embedding_model", "all-MiniLM-L6-v2"),
             )
             if self._process is not None and self._process.is_alive() and model_key != self._model_key:
                 self._stop_worker()

@@ -30,7 +30,7 @@ def load_config(path: str) -> dict:
 
 def main() -> None:
     """Provide main entry point for the textplease CLI."""
-    parser = argparse.ArgumentParser(description="Transcribe and segment audio using open-source ASR models.")
+    parser = argparse.ArgumentParser(description="Transcribe audio locally using open-source ASR models.")
     parser.add_argument("--config", help="Path to YAML config file.")
     parser.add_argument("--gradio", action="store_true", help="Launch the Gradio UI instead of CLI pipeline.")
 

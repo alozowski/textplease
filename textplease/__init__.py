@@ -1,4 +1,4 @@
-"""TextPlease: A unified audio transcription and segmentation library."""
+"""Local audio transcription with open-source ASR models."""
 
 import logging
 
