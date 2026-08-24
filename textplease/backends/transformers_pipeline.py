@@ -3,7 +3,6 @@
 import gc
 import re
 import logging
-import warnings
 from typing import TypedDict
 from functools import lru_cache
 
@@ -22,9 +21,6 @@ from textplease.utils.audio_utils import TARGET_SAMPLE_RATE, load_pcm_wav
 
 
 logger = logging.getLogger(__name__)
-
-warnings.filterwarnings("ignore", message=".*Whisper did not predict an ending timestamp.*")
-warnings.filterwarnings("ignore", message=".*attention mask is not set.*")
 
 
 class _WhisperOffset(TypedDict):
@@ -142,7 +138,7 @@ def _transcribe_speech_segments(
     processor: WhisperProcessor,
     audio_chunks: list[np.ndarray],
     device: str,
-    language: str,
+    language: str | None,
 ) -> list[list[_WhisperOffset]]:
     """Transcribe speech chunks and return decoded offsets for each chunk."""
     torch_dtype = torch.float16 if device not in ("cpu", "mps") else torch.float32
@@ -162,12 +158,14 @@ def _transcribe_speech_segments(
     else:
         attention_mask = None
 
+    is_multilingual = getattr(model.generation_config, "is_multilingual", True)
+
     with torch.no_grad():
         generated_ids = model.generate(
             input_features=input_features,
             attention_mask=attention_mask,
-            language=language,
-            task="transcribe",
+            language=language if is_multilingual else None,
+            task="transcribe" if is_multilingual else None,
             return_timestamps=True,
             temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
             compression_ratio_threshold=1.35,
@@ -217,9 +215,10 @@ def _transcribe_chunks(
     chunks: list[tuple[int, int, np.ndarray]],
     batch_size: int,
     device: str,
-    language: str,
+    language: str | None,
 ) -> list[_WhisperOffset]:
     all_offsets: list[_WhisperOffset] = []
+    previous_end_s = 0.0
     for batch_start in range(0, len(chunks), batch_size):
         batch = chunks[batch_start : batch_start + batch_size]
         first_start, _, _ = batch[0]
@@ -244,13 +243,28 @@ def _transcribe_chunks(
                 _transcribe_speech_segments(model, processor, [chunk], device, language)[0] for chunk in audio_chunks
             ]
 
-        for (start, _, _), offsets in zip(batch, batch_offsets, strict=True):
+        for (start, end, _), offsets in zip(batch, batch_offsets, strict=True):
             start_s = start / TARGET_SAMPLE_RATE
-            for offset in offsets:
-                ts = offset.get("timestamp", (0.0, 0.0))
-                if len(ts) == 2 and ts[0] is not None and ts[1] is not None:
-                    offset["timestamp"] = (ts[0] + start_s, ts[1] + start_s)
-            all_offsets.extend(offsets)
+            end_s = end / TARGET_SAMPLE_RATE
+            for offset_index, offset in enumerate(offsets):
+                local_start, local_end = offset["timestamp"]
+                if local_start is None:
+                    continue
+                if local_end is None and offset_index != len(offsets) - 1:
+                    continue
+
+                bounded_start = max(start_s, local_start + start_s, previous_end_s)
+                bounded_end = end_s if local_end is None else min(end_s, local_end + start_s)
+                if bounded_end <= bounded_start:
+                    continue
+
+                all_offsets.append(
+                    {
+                        "text": offset["text"],
+                        "timestamp": (bounded_start, bounded_end),
+                    }
+                )
+                previous_end_s = bounded_end
 
     return all_offsets
 
@@ -272,7 +286,7 @@ def transcribe(
     model_name: str,
     device: str,
     *,
-    language: str = "en",
+    language: str | None = "en",
     batch_size: int = 1,
 ) -> list[dict[str, str]]:
     """Transcribe a normalized mono 16 kHz PCM16 WAV."""

@@ -24,6 +24,6 @@ def transcribe_audio(
         audio_path=normalized_audio_path,
         model_name=model_name,
         device=device,
-        language=language or "en",
+        language=language,
         batch_size=batch_size,
     )

@@ -109,7 +109,7 @@ This turns off the normal segmentation rules as far as practical. The result is 
 | `output_path` | Required | Replaced if it already exists |
 | `model_name` | Required | A Hugging Face model ID downloaded on first use, or a local directory; the web interface uses `openai/whisper-large-v3` |
 | `device` | `cpu` | Use `auto` for the best available device, `cuda` for NVIDIA, or `mps` for Apple Silicon |
-| `language` | `en` | Language code passed to Whisper |
+| `language` | `en` | Language code passed to Whisper; use `null` for automatic detection with multilingual models |
 | `embedding_model` | `all-MiniLM-L6-v2` | Model used to compare segment meaning |
 | `log_level` | `INFO` | Also accepts `DEBUG`, `WARNING`, and `ERROR` |
 
@@ -127,14 +127,14 @@ Most users can leave these alone.
 
 ```yaml
 performance:
-  whisper_batch_size: 4
+  whisper_batch_size: 1
   similarity_batch_size: 32
   chunk_size: 1000
 ```
 
-`whisper_batch_size` controls how many VAD speech chunks Whisper transcribes together. The default is `4` on CUDA and
-`1` on CPU or MPS. Lower it if Whisper runs out of accelerator memory; a failed batch automatically retries one chunk
-at a time.
+`whisper_batch_size` controls how many VAD speech chunks Whisper transcribes together. The default is `1` on every
+device because output parity for larger real-model batches is not yet established. An explicitly configured batch that
+exhausts accelerator memory automatically retries one chunk at a time.
 
 `similarity_batch_size` controls how many text embeddings are created at once. Lower it if the embedding step runs out of memory.
 
