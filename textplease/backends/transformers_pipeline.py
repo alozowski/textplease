@@ -1,4 +1,4 @@
-"""Whisper ASR backend: Silero-VAD preprocessing + model.generate() per speech segment."""
+"""Whisper ASR backend with local speech and music detection."""
 
 import gc
 import re
@@ -10,7 +10,12 @@ from functools import lru_cache
 import numpy as np
 import torch
 from silero_vad import load_silero_vad, get_speech_timestamps
-from transformers import WhisperProcessor, WhisperForConditionalGeneration
+from transformers import (
+    WhisperProcessor,
+    ASTFeatureExtractor,
+    ASTForAudioClassification,
+    WhisperForConditionalGeneration,
+)
 
 from textplease.utils.time_utils import format_time_precise as format_time
 from textplease.utils.audio_utils import TARGET_SAMPLE_RATE, load_pcm_wav
@@ -34,13 +39,12 @@ def _load_model_and_processor(
 ) -> tuple[WhisperForConditionalGeneration, WhisperProcessor]:
     """Load Whisper model and processor."""
     logger.info(f"Loading Transformers model '{model_name}' on device: {device}")
-    processor = WhisperProcessor.from_pretrained(model_name, local_files_only=True)
+    processor = WhisperProcessor.from_pretrained(model_name)
     torch_dtype = torch.float16 if device not in ("cpu", "mps") else torch.float32
     model = WhisperForConditionalGeneration.from_pretrained(
         model_name,
         dtype=torch_dtype,
         low_cpu_mem_usage=True,
-        local_files_only=True,
         use_safetensors=True,
     )
     model = model.to(torch.device(device))
@@ -49,8 +53,9 @@ def _load_model_and_processor(
 
 def _get_speech_segments(
     audio_array: np.ndarray,
-) -> list[dict[str, int]]:
-    """Run Silero VAD and return bounded speech intervals in source samples."""
+    device: str,
+) -> tuple[list[dict[str, int]], list[tuple[int, int]]]:
+    """Run speech detection and return bounded intervals in source samples."""
     vad_model = load_silero_vad()
     audio_tensor = torch.from_numpy(audio_array)
 
@@ -72,13 +77,64 @@ def _get_speech_segments(
         if end > start:
             segments.append({"start": start, "end": end})
 
-    total_s = len(audio_array) / TARGET_SAMPLE_RATE
-    speech_s = sum(segment["end"] - segment["start"] for segment in segments) / TARGET_SAMPLE_RATE
-    logger.info(
-        f"VAD: {len(segments)} speech segments — "
-        f"{speech_s:.1f}s / {total_s:.1f}s total ({100 * speech_s / max(total_s, 1):.0f}% speech)"
+    if not segments:
+        return [], []
+
+    classifier_name = "MIT/ast-finetuned-audioset-10-10-0.4593"
+    classifier_revision = "f826b80d28226b62986cc218e5cec390b1096902"
+    feature_extractor = ASTFeatureExtractor.from_pretrained(
+        classifier_name,
+        revision=classifier_revision,
     )
-    return segments
+    classifier = ASTForAudioClassification.from_pretrained(
+        classifier_name,
+        revision=classifier_revision,
+        use_safetensors=True,
+    ).to(torch.device(device))
+    classifier.eval()
+    speech_label = classifier.config.label2id.get("Speech")
+    music_label = classifier.config.label2id.get("Music")
+    if not isinstance(speech_label, int) or not isinstance(music_label, int):
+        raise ValueError("Audio classifier must provide Speech and Music labels")
+
+    windows: list[tuple[int, int, int]] = []
+    window_samples = 10 * TARGET_SAMPLE_RATE
+    for segment_index, segment in enumerate(segments):
+        window_starts = list(range(segment["start"], segment["end"], window_samples))
+        # Kaldi fbank needs one 25 ms frame; the previous complete window covers anything shorter.
+        if len(window_starts) > 1 and segment["end"] - window_starts[-1] < TARGET_SAMPLE_RATE // 40:
+            window_starts.pop()
+        for window_start in window_starts:
+            window_end = min(window_start + window_samples, segment["end"])
+            windows.append((segment_index, window_start, window_end))
+
+    retained_segments: set[int] = set()
+    speech_windows: list[tuple[int, int]] = []
+    for batch_start in range(0, len(windows), 16):
+        batch = windows[batch_start : batch_start + 16]
+        inputs = feature_extractor(
+            [audio_array[window_start:window_end] for _, window_start, window_end in batch],
+            sampling_rate=TARGET_SAMPLE_RATE,
+            return_tensors="pt",
+        )
+        with torch.no_grad():
+            logits = classifier(input_values=inputs.input_values.to(device)).logits
+        probabilities = torch.sigmoid(logits).cpu()
+        for (segment_index, window_start, window_end), scores in zip(batch, probabilities, strict=True):
+            if scores[speech_label] >= 0.4 or scores[music_label] < 0.5:
+                retained_segments.add(segment_index)
+                speech_windows.append((window_start, window_end))
+
+    speech_segments = [segment for index, segment in enumerate(segments) if index in retained_segments]
+
+    total_s = len(audio_array) / TARGET_SAMPLE_RATE
+    retained_s = sum(segment["end"] - segment["start"] for segment in speech_segments) / TARGET_SAMPLE_RATE
+    logger.info(
+        f"Speech detection: {len(speech_segments)}/{len(segments)} VAD candidates retained — "
+        f"{retained_s:.1f}s / {total_s:.1f}s total "
+        f"({100 * retained_s / max(total_s, 1):.0f}% candidate audio)"
+    )
+    return speech_segments, speech_windows
 
 
 def _transcribe_speech_segments(
@@ -116,6 +172,7 @@ def _transcribe_speech_segments(
             temperature=(0.0, 0.2, 0.4, 0.6, 0.8, 1.0),
             compression_ratio_threshold=1.35,
             logprob_threshold=-1.0,
+            no_speech_threshold=0.6,
         )
 
     time_precision = processor.feature_extractor.chunk_length / model.config.max_source_positions
@@ -223,7 +280,7 @@ def transcribe(
         raise ValueError("Whisper batch size must be positive")
 
     audio_array = load_pcm_wav(audio_path)
-    speech_segments = _get_speech_segments(audio_array)
+    speech_segments, speech_windows = _get_speech_segments(audio_array, device)
     if not speech_segments:
         logger.info("No speech detected")
         return []
@@ -231,6 +288,8 @@ def transcribe(
     gc.collect()
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
+    if device == "mps":
+        torch.mps.empty_cache()
 
     model, processor = _load_model_and_processor(model_name, device)
     chunks = [
@@ -245,6 +304,17 @@ def transcribe(
         device,
         language,
     )
+    offsets = [
+        offset
+        for offset in offsets
+        if offset["timestamp"][0] is not None
+        and offset["timestamp"][1] is not None
+        and any(
+            offset["timestamp"][1] > window_start / TARGET_SAMPLE_RATE
+            and offset["timestamp"][0] < window_end / TARGET_SAMPLE_RATE
+            for window_start, window_end in speech_windows
+        )
+    ]
     segments = _offsets_to_segments(offsets)
     if segments:
         logger.info(f"Generated {len(segments)} segments via VAD + model.generate()")

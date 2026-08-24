@@ -39,11 +39,10 @@ def test_pipeline_reuses_embedding_model(monkeypatch, tmp_path):
     sentence_transformer.assert_called_once_with(
         "all-MiniLM-L6-v2",
         device="cpu",
-        local_files_only=True,
     )
 
 
-def test_segmenter_loads_embedding_model_from_local_files(monkeypatch):
+def test_segmenter_allows_embedding_model_download(monkeypatch):
     embedding_model = Mock()
     embedding_model.encode.return_value = torch.tensor([[1.0, 0.0], [1.0, 0.0]])
     sentence_transformer = Mock(return_value=embedding_model)
@@ -60,7 +59,6 @@ def test_segmenter_loads_embedding_model_from_local_files(monkeypatch):
     sentence_transformer.assert_called_once_with(
         "test-embedding-model",
         device="cpu",
-        local_files_only=True,
     )
 
 
@@ -86,11 +84,10 @@ def test_transcriber_reuses_whisper_model(monkeypatch):
         "load_pcm_wav",
         lambda path: np.zeros(TARGET_SAMPLE_RATE, dtype=np.float32),
     )
-    monkeypatch.setattr(transformers_pipeline, "load_silero_vad", lambda: object())
     monkeypatch.setattr(
         transformers_pipeline,
-        "get_speech_timestamps",
-        lambda *args, **kwargs: [{"start": 0, "end": TARGET_SAMPLE_RATE}],
+        "_get_speech_segments",
+        lambda *args: ([{"start": 0, "end": TARGET_SAMPLE_RATE}], [(0, TARGET_SAMPLE_RATE)]),
     )
     monkeypatch.setattr(
         transformers_pipeline,
@@ -105,6 +102,6 @@ def test_transcriber_reuses_whisper_model(monkeypatch):
     finally:
         transformers_pipeline._load_model_and_processor.cache_clear()
 
-    processor_loader.assert_called_once_with("test-model", local_files_only=True)
+    processor_loader.assert_called_once_with("test-model")
     assert model_loader.call_args.args == ("test-model",)
-    assert model_loader.call_args.kwargs["local_files_only"] is True
+    assert "local_files_only" not in model_loader.call_args.kwargs

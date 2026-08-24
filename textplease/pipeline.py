@@ -130,7 +130,7 @@ def _extract_config_params(config: dict) -> dict:
 @lru_cache(maxsize=1)
 def _load_embedding_model(model_name: str, device: str) -> SentenceTransformer:
     logger.info(f"Loading SentenceTransformer '{model_name}' on: {device}")
-    return SentenceTransformer(model_name, device=device, local_files_only=True)
+    return SentenceTransformer(model_name, device=device)
 
 
 def _filter_hallucinations(segments: list[dict]) -> list[dict]:

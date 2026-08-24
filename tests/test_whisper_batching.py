@@ -11,8 +11,13 @@ from textplease.utils.audio_utils import TARGET_SAMPLE_RATE
 
 
 class FakeTokenizer:
-    def __init__(self, include_offsets: bool = True):
+    def __init__(
+        self,
+        include_offsets: bool = True,
+        timestamp: tuple[float, float] = (0.0, 0.5),
+    ):
         self.include_offsets = include_offsets
+        self.timestamp = timestamp
 
     def decode(self, token_ids, **kwargs):
         if not self.include_offsets:
@@ -22,7 +27,7 @@ class FakeTokenizer:
             "offsets": [
                 {
                     "text": f"Segment {segment_number}",
-                    "timestamp": (0.0, 0.5),
+                    "timestamp": self.timestamp,
                 }
             ]
         }
@@ -31,8 +36,12 @@ class FakeTokenizer:
 class FakeProcessor:
     feature_extractor = SimpleNamespace(chunk_length=30)
 
-    def __init__(self, include_offsets: bool = True):
-        self.tokenizer = FakeTokenizer(include_offsets)
+    def __init__(
+        self,
+        include_offsets: bool = True,
+        timestamp: tuple[float, float] = (0.0, 0.5),
+    ):
+        self.tokenizer = FakeTokenizer(include_offsets, timestamp)
         self.audio_batches = []
 
     def __call__(self, audio, **kwargs):
@@ -67,6 +76,38 @@ class FakeModel:
         return input_features[:, 0, :].to(dtype=torch.long)
 
 
+@pytest.fixture
+def audio_classifier(monkeypatch):
+    feature_extractor = Mock(
+        side_effect=lambda audio, **kwargs: BatchFeature(
+            {
+                "input_values": torch.ones(
+                    (len(audio) if isinstance(audio, list) else 1, 1),
+                    dtype=torch.float32,
+                )
+            }
+        )
+    )
+    classifier = Mock(
+        side_effect=lambda input_values: SimpleNamespace(
+            logits=torch.tensor([[1.0, 1.0]]).repeat(len(input_values), 1)
+        )
+    )
+    classifier.config = SimpleNamespace(label2id={"Speech": 0, "Music": 1})
+    classifier.to.return_value = classifier
+    classifier.eval.return_value = classifier
+    feature_loader = Mock(return_value=feature_extractor)
+    model_loader = Mock(return_value=classifier)
+    monkeypatch.setattr(transformers_pipeline.ASTFeatureExtractor, "from_pretrained", feature_loader)
+    monkeypatch.setattr(transformers_pipeline.ASTForAudioClassification, "from_pretrained", model_loader)
+    return SimpleNamespace(
+        model=classifier,
+        model_loader=model_loader,
+        feature_extractor=feature_extractor,
+        feature_loader=feature_loader,
+    )
+
+
 def _run_transcription(monkeypatch, batch_size, *, fail_batched=False):
     audio = np.concatenate(
         [np.full(TARGET_SAMPLE_RATE, segment_number, dtype=np.float32) for segment_number in (1, 2, 3)]
@@ -81,7 +122,11 @@ def _run_transcription(monkeypatch, batch_size, *, fail_batched=False):
 
     monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args: (model, processor))
     monkeypatch.setattr(transformers_pipeline, "load_pcm_wav", lambda path: audio)
-    monkeypatch.setattr(transformers_pipeline, "_get_speech_segments", lambda *args: speech_segments)
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "_get_speech_segments",
+        lambda *args: (speech_segments, [(0, len(audio))]),
+    )
     monkeypatch.setattr(transformers_pipeline.torch.cuda, "is_available", lambda: False)
 
     segments = transformers_pipeline.transcribe(
@@ -127,8 +172,123 @@ def test_no_speech_skips_whisper(monkeypatch):
     assert detector.call_args.kwargs["return_seconds"] is False
 
 
+def test_music_candidate_skips_whisper(monkeypatch, audio_classifier):
+    audio_classifier.model.side_effect = None
+    audio_classifier.model.return_value = SimpleNamespace(logits=torch.tensor([[-1.0, 1.0]]))
+    model_loader = Mock(side_effect=AssertionError("Whisper must not load for music"))
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "load_pcm_wav",
+        lambda path: np.ones(TARGET_SAMPLE_RATE, dtype=np.float32),
+    )
+    monkeypatch.setattr(transformers_pipeline, "load_silero_vad", lambda: object())
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "get_speech_timestamps",
+        lambda *args, **kwargs: [{"start": 0, "end": TARGET_SAMPLE_RATE}],
+    )
+    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", model_loader)
+
+    assert transformers_pipeline.transcribe("music.wav", "test-model", "cpu") == []
+    model_loader.assert_not_called()
+    audio_classifier.feature_loader.assert_called_once_with(
+        "MIT/ast-finetuned-audioset-10-10-0.4593",
+        revision="f826b80d28226b62986cc218e5cec390b1096902",
+    )
+    audio_classifier.model_loader.assert_called_once_with(
+        "MIT/ast-finetuned-audioset-10-10-0.4593",
+        revision="f826b80d28226b62986cc218e5cec390b1096902",
+        use_safetensors=True,
+    )
+
+
+def test_classifier_ignores_unclassifiable_tail(monkeypatch, audio_classifier):
+    audio = np.ones(10 * TARGET_SAMPLE_RATE + 384, dtype=np.float32)
+    model = FakeModel()
+    processor = FakeProcessor()
+    monkeypatch.setattr(transformers_pipeline, "load_pcm_wav", lambda path: audio)
+    monkeypatch.setattr(transformers_pipeline, "load_silero_vad", lambda: object())
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "get_speech_timestamps",
+        lambda *args, **kwargs: [{"start": 0, "end": len(audio)}],
+    )
+    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args: (model, processor))
+    monkeypatch.setattr(transformers_pipeline.torch.cuda, "is_available", lambda: False)
+
+    assert transformers_pipeline.transcribe("input.wav", "test-model", "cpu")
+
+    classifier_windows = audio_classifier.feature_extractor.call_args.args[0]
+    assert [len(window) for window in classifier_windows] == [10 * TARGET_SAMPLE_RATE]
+
+
+def test_classifier_keeps_short_speech_tail(monkeypatch, audio_classifier):
+    tail_samples = TARGET_SAMPLE_RATE // 2
+    audio = np.concatenate(
+        [
+            np.zeros(10 * TARGET_SAMPLE_RATE, dtype=np.float32),
+            np.ones(tail_samples, dtype=np.float32),
+        ]
+    )
+    audio_classifier.model.side_effect = None
+    audio_classifier.model.return_value = SimpleNamespace(
+        logits=torch.tensor(
+            [
+                [-4.0, 2.0],
+                [-0.2, 1.4],
+            ]
+        )
+    )
+    model = FakeModel()
+    processor = FakeProcessor(timestamp=(10.0, 10.5))
+    monkeypatch.setattr(transformers_pipeline, "load_pcm_wav", lambda path: audio)
+    monkeypatch.setattr(transformers_pipeline, "load_silero_vad", lambda: object())
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "get_speech_timestamps",
+        lambda *args, **kwargs: [{"start": 0, "end": len(audio)}],
+    )
+    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args: (model, processor))
+    monkeypatch.setattr(transformers_pipeline.torch.cuda, "is_available", lambda: False)
+
+    segments = transformers_pipeline.transcribe("mixed.wav", "test-model", "cpu")
+
+    assert [segment["text"] for segment in segments] == ["Segment 0"]
+    assert model.batch_sizes == [1]
+    classifier_windows = audio_classifier.feature_extractor.call_args.args[0]
+    assert [len(window) for window in classifier_windows] == [10 * TARGET_SAMPLE_RATE, tail_samples]
+
+
+def test_transcribe_drops_text_from_music_only_windows(monkeypatch):
+    audio = np.ones(30 * TARGET_SAMPLE_RATE, dtype=np.float32)
+    monkeypatch.setattr(transformers_pipeline, "load_pcm_wav", lambda path: audio)
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "_get_speech_segments",
+        lambda *args: (
+            [{"start": 0, "end": len(audio)}],
+            [(10 * TARGET_SAMPLE_RATE, 20 * TARGET_SAMPLE_RATE)],
+        ),
+    )
+    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args: (object(), object()))
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "_transcribe_chunks",
+        lambda *args: [
+            {"text": "music intro", "timestamp": (1.0, 2.0)},
+            {"text": "spoken words", "timestamp": (12.0, 13.0)},
+            {"text": "music outro", "timestamp": (21.0, 22.0)},
+        ],
+    )
+    monkeypatch.setattr(transformers_pipeline.torch.cuda, "is_available", lambda: False)
+
+    segments = transformers_pipeline.transcribe("mixed.wav", "test-model", "cpu")
+
+    assert [segment["text"] for segment in segments] == ["spoken words"]
+
+
 @pytest.mark.parametrize("duration_samples", [4000, 6992, 7984])
-def test_every_detected_short_interval_reaches_whisper(monkeypatch, duration_samples):
+def test_every_detected_short_interval_reaches_whisper(monkeypatch, audio_classifier, duration_samples):
     start = 123
     end = start + duration_samples
     audio = np.linspace(-1.0, 1.0, end + 200, dtype=np.float32)
@@ -151,7 +311,7 @@ def test_every_detected_short_interval_reaches_whisper(monkeypatch, duration_sam
     assert detector.call_args.kwargs["return_seconds"] is False
 
 
-def test_detected_intervals_are_clamped_to_audio_bounds(monkeypatch):
+def test_detected_intervals_are_clamped_to_audio_bounds(monkeypatch, audio_classifier):
     audio = np.linspace(1.0, 2.0, TARGET_SAMPLE_RATE, dtype=np.float32)
     detector = Mock(
         return_value=[
@@ -176,7 +336,7 @@ def test_detected_intervals_are_clamped_to_audio_bounds(monkeypatch):
     np.testing.assert_array_equal(processor.audio_batches[0][0], audio)
 
 
-def test_empty_decoder_result_does_not_retry_full_audio(monkeypatch):
+def test_empty_decoder_result_does_not_retry_full_audio(monkeypatch, audio_classifier):
     audio = np.ones(TARGET_SAMPLE_RATE, dtype=np.float32)
     start = 137
     end = 8137
@@ -203,7 +363,7 @@ def test_empty_decoder_result_does_not_retry_full_audio(monkeypatch):
     "decoder_error",
     [ValueError("Unsupported language"), torch.OutOfMemoryError("single segment")],
 )
-def test_single_segment_decoder_error_propagates(monkeypatch, decoder_error):
+def test_single_segment_decoder_error_propagates(monkeypatch, audio_classifier, decoder_error):
     audio = np.ones(TARGET_SAMPLE_RATE, dtype=np.float32)
     model = FakeModel(error=decoder_error)
 
@@ -228,7 +388,7 @@ def test_single_segment_decoder_error_propagates(monkeypatch, decoder_error):
     assert model.batch_sizes == [1]
 
 
-def test_model_loader_error_propagates(monkeypatch):
+def test_model_loader_error_propagates(monkeypatch, audio_classifier):
     audio = np.ones(TARGET_SAMPLE_RATE, dtype=np.float32)
     expected_error = OSError("checkpoint is unavailable")
     model_loader = Mock(side_effect=expected_error)

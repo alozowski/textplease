@@ -374,7 +374,7 @@ def segment_transcript(
     if len(segments) > 1 and similarity_threshold < 1.0:
         if model is None:
             device = detect_device(preferred_device)
-            model = SentenceTransformer(embedding_model_name, device=device, local_files_only=True)
+            model = SentenceTransformer(embedding_model_name, device=device)
         similarity_computer = SimilarityComputer(model, batch_size)
         similarity_computer.precompute_embeddings([seg["text"] for seg in segments])
 

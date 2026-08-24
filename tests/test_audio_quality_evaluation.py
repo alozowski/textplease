@@ -41,6 +41,10 @@ def quality_evaluation_files(tmp_path: Path) -> dict[str, object]:
             "repository": "openai/whisper-large-v3",
             "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1",
         },
+        "audio_classifier": {
+            "repository": "MIT/ast-finetuned-audioset-10-10-0.4593",
+            "revision": "f826b80d28226b62986cc218e5cec390b1096902",
+        },
         "pipeline": {},
         "normalization": {
             "unicode_form": "NFKC",
@@ -66,6 +70,7 @@ def quality_evaluation_files(tmp_path: Path) -> dict[str, object]:
             "random_seed": protocol_data["random_seed"],
             "source": {"git_revision": "0" * 40, "git_dirty": False},
             "model": protocol_data["model"],
+            "audio_classifier": protocol_data["audio_classifier"],
             "resolved_device": "cpu",
             "whisper_batch_size": 1,
             "environment": {"python": "test"},
@@ -131,6 +136,108 @@ def test_score_reports_text_boundary_and_activity_metrics(
     assert "| False-alarm rate | 0.5000 |" in markdown
     assert "| Boundary median error (ms) | 50.0000 |" in markdown
     assert "| Timestamp violations | 0 |" in markdown
+
+
+def test_score_marks_missing_activity_reference_unavailable(
+    quality_evaluation_files: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    """Do not report zero activity error when no interval reference exists."""
+    manifest = quality_evaluation_files["manifest"]
+    manifest_case = quality_evaluation_files["manifest_case"]
+    predictions = quality_evaluation_files["predictions"]
+    prediction_data = quality_evaluation_files["prediction_data"]
+    assert isinstance(manifest, Path)
+    assert isinstance(manifest_case, dict)
+    assert isinstance(predictions, Path)
+    assert isinstance(prediction_data, dict)
+
+    manifest_case["reference"]["speech_intervals_ms"] = None
+    manifest.write_text(json.dumps(manifest_case) + "\n", encoding="utf-8")
+    prediction_data["run"]["manifest_sha256"] = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    predictions.write_text(json.dumps(prediction_data), encoding="utf-8")
+
+    report = tmp_path / "missing-activity-report.md"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/evaluate_audio_quality.py",
+            "score",
+            "--manifest",
+            str(manifest),
+            "--protocol",
+            str(quality_evaluation_files["protocol"]),
+            "--predictions",
+            str(predictions),
+            "--output",
+            str(report),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    case_row = next(
+        line
+        for line in reversed(report.read_text(encoding="utf-8").splitlines())
+        if line.startswith("| speech-case |")
+    )
+    cells = [cell.strip() for cell in case_row.split("|")[1:-1]]
+    assert cells[10:14] == ["—", "—", "—", "—"]
+
+
+def test_short_exact_match_gate_covers_speech_inside_long_audio(
+    quality_evaluation_files: dict[str, object],
+    tmp_path: Path,
+) -> None:
+    manifest = quality_evaluation_files["manifest"]
+    manifest_case = quality_evaluation_files["manifest_case"]
+    protocol = quality_evaluation_files["protocol"]
+    protocol_data = quality_evaluation_files["protocol_data"]
+    predictions = quality_evaluation_files["predictions"]
+    prediction_data = quality_evaluation_files["prediction_data"]
+    assert isinstance(manifest, Path)
+    assert isinstance(manifest_case, dict)
+    assert isinstance(protocol, Path)
+    assert isinstance(protocol_data, dict)
+    assert isinstance(predictions, Path)
+    assert isinstance(prediction_data, dict)
+
+    manifest_case["duration_ms"] = 10_000
+    manifest_case["reference"]["speech_intervals_ms"] = [[5000, 5500]]
+    manifest.write_text(json.dumps(manifest_case) + "\n", encoding="utf-8")
+    protocol_data["gates"] = {"short_exact_match_rate": {"enabled": True, "min": 1.0}}
+    protocol.write_text(json.dumps(protocol_data), encoding="utf-8")
+    prediction_data["cases"][0]["segments"] = []
+    prediction_data["run"]["manifest_sha256"] = hashlib.sha256(manifest.read_bytes()).hexdigest()
+    prediction_data["run"]["protocol_sha256"] = hashlib.sha256(protocol.read_bytes()).hexdigest()
+    predictions.write_text(json.dumps(prediction_data), encoding="utf-8")
+
+    report = tmp_path / "embedded-short-speech-report.md"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "scripts/evaluate_audio_quality.py",
+            "score",
+            "--manifest",
+            str(manifest),
+            "--protocol",
+            str(protocol),
+            "--predictions",
+            str(predictions),
+            "--output",
+            str(report),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 1, result.stderr
+    assert "| `short_exact_match_rate` | min 1.0000 | 0.0000 | FAIL |" in report.read_text(encoding="utf-8")
 
 
 def test_score_returns_failure_for_an_enabled_gate(

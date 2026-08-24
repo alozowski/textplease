@@ -194,15 +194,16 @@ def _validate_protocol(protocol: dict) -> None:
     if isinstance(random_seed, bool) or not isinstance(random_seed, int) or random_seed < 0 or random_seed > 2**64 - 1:
         raise ValueError("Protocol random_seed must be an integer from 0 through 2^64 - 1")
 
-    model = protocol.get("model")
-    if not isinstance(model, dict):
-        raise ValueError("Protocol model must be an object")
-    repository = model.get("repository")
-    revision = model.get("revision")
-    if not isinstance(repository, str) or not repository.strip():
-        raise ValueError("Protocol model.repository must be a nonempty string")
-    if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
-        raise ValueError("Protocol model.revision must be an exact 40-character commit SHA")
+    for field in ("model", "audio_classifier"):
+        model = protocol.get(field)
+        if not isinstance(model, dict):
+            raise ValueError(f"Protocol {field} must be an object")
+        repository = model.get("repository")
+        revision = model.get("revision")
+        if not isinstance(repository, str) or not repository.strip():
+            raise ValueError(f"Protocol {field}.repository must be a nonempty string")
+        if not isinstance(revision, str) or re.fullmatch(r"[0-9a-f]{40}", revision) is None:
+            raise ValueError(f"Protocol {field}.revision must be an exact 40-character commit SHA")
 
     pipeline = protocol.get("pipeline")
     if not isinstance(pipeline, dict):
@@ -423,6 +424,7 @@ def _infer(
                 "revision": revision,
                 "snapshot": str(snapshot),
             },
+            "audio_classifier": protocol["audio_classifier"],
             "pipeline": pipeline_config,
             "requested_device": device,
             "resolved_device": resolved_device,
@@ -475,6 +477,8 @@ def _read_predictions(
         raise ValueError("Predictions model metadata must be an object")
     if any(run["model"].get(field) != protocol["model"][field] for field in ("repository", "revision")):
         raise ValueError("Predictions model metadata does not match the protocol")
+    if run.get("audio_classifier") != protocol["audio_classifier"]:
+        raise ValueError("Predictions audio classifier metadata does not match the protocol")
     source = run.get("source")
     if (
         not isinstance(source, dict)
@@ -634,6 +638,7 @@ def _score_subset(cases: list[dict], predictions: dict[str, dict], protocol: dic
     non_speech_nonempty_cases = 0
     non_speech_error_cases = 0
     prediction_error_cases = 0
+    activity_cases = 0
     reference_speech_ms = 0
     reference_non_speech_ms = 0
     missed_speech_ms = 0
@@ -652,6 +657,16 @@ def _score_subset(cases: list[dict], predictions: dict[str, dict], protocol: dic
         prediction = predictions[case["id"]]
         normalized_reference = _normalize(case["reference"]["text"])
         normalized_prediction = _normalize(" ".join(segment["text"] for segment in prediction["segments"]))
+        reference_interval_data = case["reference"]["speech_intervals_ms"]
+        reference_intervals = (
+            None if reference_interval_data is None else [tuple(interval) for interval in reference_interval_data]
+        )
+        merged_reference = (
+            None if reference_intervals is None else _merge_intervals(reference_intervals, case["duration_ms"])
+        )
+        reference_speech_duration = (
+            None if merged_reference is None else sum(end_ms - start_ms for start_ms, end_ms in merged_reference)
+        )
 
         word_output = process_words(normalized_reference, normalized_prediction)
         word_substitutions += word_output.substitutions
@@ -665,14 +680,16 @@ def _score_subset(cases: list[dict], predictions: dict[str, dict], protocol: dic
         character_insertions += character_output.insertions
         reference_characters += character_output.hits + character_output.substitutions + character_output.deletions
 
-        if normalized_reference and case["duration_ms"] <= protocol["short_case_max_duration_ms"]:
+        if normalized_reference and (
+            case["duration_ms"] <= protocol["short_case_max_duration_ms"]
+            or (
+                reference_speech_duration is not None
+                and 0 < reference_speech_duration <= protocol["short_case_max_duration_ms"]
+            )
+        ):
             short_cases += 1
             short_exact_matches += normalized_reference == normalized_prediction
 
-        reference_interval_data = case["reference"]["speech_intervals_ms"]
-        reference_intervals = (
-            None if reference_interval_data is None else [tuple(interval) for interval in reference_interval_data]
-        )
         if reference_intervals == []:
             non_speech_cases += 1
             non_speech_nonempty_cases += bool(normalized_prediction)
@@ -680,8 +697,8 @@ def _score_subset(cases: list[dict], predictions: dict[str, dict], protocol: dic
         prediction_error_cases += prediction["error"] is not None
 
         predicted_intervals = [(segment["start_ms"], segment["end_ms"]) for segment in prediction["segments"]]
-        if reference_intervals is not None:
-            merged_reference = _merge_intervals(reference_intervals, case["duration_ms"])
+        if merged_reference is not None:
+            activity_cases += 1
             merged_prediction = _merge_intervals(predicted_intervals, case["duration_ms"])
             reference_duration = sum(end_ms - start_ms for start_ms, end_ms in merged_reference)
             predicted_duration = sum(end_ms - start_ms for start_ms, end_ms in merged_prediction)
@@ -760,11 +777,11 @@ def _score_subset(cases: list[dict], predictions: dict[str, dict], protocol: dic
         "non_speech_error_cases": non_speech_error_cases,
         "non_speech_error_rate": non_speech_error_cases / non_speech_cases if non_speech_cases else None,
         "prediction_error_cases": prediction_error_cases,
-        "reference_speech_ms": reference_speech_ms,
-        "missed_speech_ms": missed_speech_ms,
+        "reference_speech_ms": reference_speech_ms if activity_cases else None,
+        "missed_speech_ms": missed_speech_ms if activity_cases else None,
         "missed_speech_rate": missed_speech_ms / reference_speech_ms if reference_speech_ms else None,
-        "reference_non_speech_ms": reference_non_speech_ms,
-        "false_alarm_ms": false_alarm_ms,
+        "reference_non_speech_ms": reference_non_speech_ms if activity_cases else None,
+        "false_alarm_ms": false_alarm_ms if activity_cases else None,
         "false_alarm_rate": false_alarm_ms / reference_non_speech_ms if reference_non_speech_ms else None,
         "reference_boundaries": reference_boundaries,
         "predicted_boundaries": predicted_boundaries,
@@ -963,11 +980,16 @@ def _score(
         ]
     )
     model_metadata = run_metadata.get("model", {})
+    classifier_metadata = run_metadata.get("audio_classifier", {})
     environment_metadata = run_metadata.get("environment", {})
     if isinstance(model_metadata, dict):
         for field in ("repository", "revision"):
             if field in model_metadata:
                 lines.append(f"| Model {field} | `{_escape_markdown(model_metadata[field])}` |")
+    if isinstance(classifier_metadata, dict):
+        for field in ("repository", "revision"):
+            if field in classifier_metadata:
+                lines.append(f"| Audio classifier {field} | `{_escape_markdown(classifier_metadata[field])}` |")
     if isinstance(environment_metadata, dict):
         for field in sorted(environment_metadata):
             lines.append(f"| Environment {field} | `{_escape_markdown(environment_metadata[field])}` |")
@@ -1124,7 +1146,10 @@ def _score(
             "## Interpretation limits",
             "",
             "- Boundary and speech-duration metrics compare final TSV intervals with the references. They are end-to-end output metrics, not direct Silero VAD measurements.",
+            "- Activity duration metrics exclude cases whose speech interval reference is null. An em dash means no interval reference was scored.",
+            "- Short exact match includes recordings whose total annotated speech is within the configured short duration, even when the surrounding recording is longer.",
             "- WER and CER score final post-processed text. The current pipeline does not expose raw decoder text, so this report cannot isolate decoder fidelity from later text mutation.",
+            "- Audio-classifier identity is declared by the protocol and is not mechanically queried from the backend. Source and evaluator metadata aid auditing but do not hash an uncommitted runtime diff.",
             "- Pipeline settings are defined by the protocol and may differ from application defaults; interpret results only for the recorded configuration.",
             "- CER includes spaces after NFKC, casefolding, punctuation-to-space conversion, and whitespace collapse.",
             "- Peak RSS is sampled for this process and its children, so spikes shorter than the sampling interval may be missed. CUDA memory is PyTorch's peak allocated memory.",
