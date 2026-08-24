@@ -121,7 +121,7 @@ def _extract_config_params(config: dict) -> dict:
         "min_segment_chars": config.get("min_segment_chars", 15),
         "max_segment_words": config.get("max_segment_words", 100),
         "language": config.get("language", "en"),
-        "whisper_batch_size": config.get("performance", {}).get("whisper_batch_size"),
+        "whisper_batch_size": config.get("performance", {}).get("whisper_batch_size", 1),
         "similarity_batch_size": config.get("performance", {}).get("similarity_batch_size", 32),
         "chunk_size": config.get("performance", {}).get("chunk_size", 1000),
     }
@@ -220,8 +220,6 @@ def run_transcription_pipeline(config: dict) -> None:
     _validate_pipeline_config(config)
     params = _extract_config_params(config)
     params["device"] = detect_device(params["device"])
-    if params["whisper_batch_size"] is None:
-        params["whisper_batch_size"] = 4 if params["device"] == "cuda" else 1
 
     logger.info(f"Input: {params['input_path']} → Output: {params['output_path']}")
     logger.info(f"ASR: {params['model_name']} | Device: {params['device']}")

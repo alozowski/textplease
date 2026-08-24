@@ -14,7 +14,7 @@ class FakeTokenizer:
     def __init__(
         self,
         include_offsets: bool = True,
-        timestamp: tuple[float, float] = (0.0, 0.5),
+        timestamp: tuple[float | None, float | None] = (0.0, 0.5),
     ):
         self.include_offsets = include_offsets
         self.timestamp = timestamp
@@ -39,7 +39,7 @@ class FakeProcessor:
     def __init__(
         self,
         include_offsets: bool = True,
-        timestamp: tuple[float, float] = (0.0, 0.5),
+        timestamp: tuple[float | None, float | None] = (0.0, 0.5),
     ):
         self.tokenizer = FakeTokenizer(include_offsets, timestamp)
         self.audio_batches = []
@@ -60,12 +60,21 @@ class FakeProcessor:
 class FakeModel:
     config = SimpleNamespace(max_source_positions=1500)
 
-    def __init__(self, fail_batched: bool = False, error: Exception | None = None):
+    def __init__(
+        self,
+        fail_batched: bool = False,
+        error: Exception | None = None,
+        *,
+        is_multilingual: bool = True,
+    ):
         self.batch_sizes = []
         self.fail_batched = fail_batched
         self.error = error
+        self.generation_config = SimpleNamespace(is_multilingual=is_multilingual)
+        self.generation_calls = []
 
     def generate(self, **kwargs):
+        self.generation_calls.append(kwargs)
         input_features = kwargs["input_features"]
         batch_size = len(input_features)
         self.batch_sizes.append(batch_size)
@@ -108,7 +117,14 @@ def audio_classifier(monkeypatch):
     )
 
 
-def _run_transcription(monkeypatch, batch_size, *, fail_batched=False):
+def _run_transcription(
+    monkeypatch,
+    batch_size,
+    *,
+    fail_batched=False,
+    is_multilingual=True,
+    language="en",
+):
     audio = np.concatenate(
         [np.full(TARGET_SAMPLE_RATE, segment_number, dtype=np.float32) for segment_number in (1, 2, 3)]
     )
@@ -117,7 +133,7 @@ def _run_transcription(monkeypatch, batch_size, *, fail_batched=False):
         {"start": TARGET_SAMPLE_RATE, "end": 2 * TARGET_SAMPLE_RATE},
         {"start": 2 * TARGET_SAMPLE_RATE, "end": 3 * TARGET_SAMPLE_RATE},
     ]
-    model = FakeModel(fail_batched=fail_batched)
+    model = FakeModel(fail_batched=fail_batched, is_multilingual=is_multilingual)
     processor = FakeProcessor()
 
     monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args: (model, processor))
@@ -134,24 +150,87 @@ def _run_transcription(monkeypatch, batch_size, *, fail_batched=False):
         "test-model",
         "cpu",
         batch_size=batch_size,
+        language=language,
     )
-    return segments, model.batch_sizes
+    return segments, model
 
 
 def test_transcribe_batches_without_changing_segments(monkeypatch):
-    sequential, sequential_batch_sizes = _run_transcription(monkeypatch, 1)
-    batched, batched_batch_sizes = _run_transcription(monkeypatch, 2)
+    sequential, sequential_model = _run_transcription(monkeypatch, 1)
+    batched, batched_model = _run_transcription(monkeypatch, 2)
 
     assert batched == sequential
-    assert sequential_batch_sizes == [1, 1, 1]
-    assert batched_batch_sizes == [2, 1]
+    assert sequential_model.batch_sizes == [1, 1, 1]
+    assert batched_model.batch_sizes == [2, 1]
 
 
 def test_transcribe_retries_batch_after_out_of_memory(monkeypatch):
-    segments, batch_sizes = _run_transcription(monkeypatch, 2, fail_batched=True)
+    segments, model = _run_transcription(monkeypatch, 2, fail_batched=True)
 
     assert [segment["text"] for segment in segments] == ["Segment 1", "Segment 2", "Segment 3"]
-    assert batch_sizes == [2, 1, 1, 1]
+    assert model.batch_sizes == [2, 1, 1, 1]
+
+
+def test_transcribe_clamps_offsets_and_preserves_terminal_text(monkeypatch):
+    interval_start = TARGET_SAMPLE_RATE // 4
+    interval_end = 3 * TARGET_SAMPLE_RATE // 4
+    audio = np.ones(TARGET_SAMPLE_RATE, dtype=np.float32)
+    offsets = [
+        {"text": "Leading", "timestamp": (-1.0, 0.2)},
+        {"text": " overlap", "timestamp": (0.1, 0.3)},
+        {"text": " terminal", "timestamp": (0.4, None)},
+    ]
+    monkeypatch.setattr(transformers_pipeline, "load_pcm_wav", lambda path: audio)
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "_get_speech_segments",
+        lambda *args: (
+            [{"start": interval_start, "end": interval_end}],
+            [(interval_start, interval_end)],
+        ),
+    )
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "_load_model_and_processor",
+        lambda *args: (FakeModel(), FakeProcessor()),
+    )
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "_transcribe_speech_segments",
+        lambda *args: [offsets],
+    )
+    monkeypatch.setattr(transformers_pipeline.torch.cuda, "is_available", lambda: False)
+
+    segments = transformers_pipeline.transcribe(
+        "input.wav",
+        "test-model",
+        "cpu",
+    )
+
+    assert segments == [
+        {"text": "Leading", "start_time": "00:00:00.250", "end_time": "00:00:00.450"},
+        {"text": "overlap", "start_time": "00:00:00.450", "end_time": "00:00:00.550"},
+        {"text": "terminal", "start_time": "00:00:00.650", "end_time": "00:00:00.750"},
+    ]
+
+
+def test_english_only_model_does_not_request_language_or_task(monkeypatch):
+    _, model = _run_transcription(monkeypatch, 1, is_multilingual=False)
+
+    assert model.generation_calls[0]["language"] is None
+    assert model.generation_calls[0]["task"] is None
+
+
+@pytest.mark.parametrize(
+    ("language", "expected_language"),
+    [("fr", "fr"), (None, None)],
+)
+def test_multilingual_model_supports_explicit_or_detected_language(monkeypatch, language, expected_language):
+    _, model = _run_transcription(monkeypatch, 1, language=language)
+
+    generation_call = model.generation_calls[0]
+    assert generation_call["task"] == "transcribe"
+    assert generation_call.get("language") == expected_language
 
 
 def test_no_speech_skips_whisper(monkeypatch):

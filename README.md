@@ -61,7 +61,7 @@ TextPlease writes tab-separated columns. The example config uses a `.csv` name, 
 
 ## Quality status
 
-The English tests cover silence, rain, music, speech over music, short speech, and clean read speech at three speeds. They also cover continuous 30 and 60 minute meetings. The active non-speech and acceptance short-text gates pass. The timestamp gate still fails and is a known issue.
+The English tests cover silence, rain, music, speech over music, short speech, and clean read speech at three speeds. They also cover continuous 30 and 60 minute meetings. The enabled non-speech, acceptance short-text, and timestamp gates pass. WER, boundary, resource, and broader quality thresholds remain disabled while evidence grows.
 
 The [baseline](evaluation/BASELINE.md) has all results and audio credits. The [protocol](evaluation/protocol.json) defines the gates. The [manifest](evaluation/manifest.jsonl) records the source, license, credit, changes, and hash for each file. Use `uv run --locked python scripts/evaluate_audio_quality.py --help` to find the inference and scoring commands.
 

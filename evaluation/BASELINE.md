@@ -6,14 +6,14 @@ This report scores the configured public `textplease` pipeline against the versi
 
 | Field | Value |
 |---|---|
-| Manifest SHA-256 | `d172a05be7283bf43c496f9686262764ef23c449f4b6a22e01e3b4c8c0483d65` |
+| Manifest SHA-256 | `58a4e462e4c2fcbbd61615d6506328ca524e43485615bc1d696283ef4704be9c` |
 | Protocol SHA-256 | `84a14380f14e18c5912d557018f6f942d940e0caa4182e86097481e2404e6048` |
-| Inference evaluator SHA-256 | `4475d7dbc7340f795e872245b2539f29443b2df6e5609734d17bb7d0432f796e` |
+| Inference evaluator SHA-256 | `7a508a172bfcf7f9a6f6d844a5d9286d16d2a43b2d9e816d7ba2481756f8be89` |
 | Scorer SHA-256 | `7a508a172bfcf7f9a6f6d844a5d9286d16d2a43b2d9e816d7ba2481756f8be89` |
 | Scorer JiWER | `4.0.0` |
 | Scorer RapidFuzz | `3.14.5` |
 | Random seed | `0` |
-| Source revision | `a4bf9773a2ad618d82ebe2a87c5bf417e7cf2c34` |
+| Source revision | `74a4054d227183954cd7eb6c295c37ad7efa6e69` |
 | Source dirty | `True` |
 | Device | `mps` |
 | Whisper batch size | `1` |
@@ -69,59 +69,60 @@ This report scores the configured public `textplease` pipeline against the versi
 | Non-speech error cases | 0 |
 | Prediction error cases | 0 |
 | Reference speech (ms) | 5026202 |
-| Missed speech (ms) | 468652 |
-| Missed speech rate | 0.0932 |
+| Missed speech (ms) | 471550 |
+| Missed speech rate | 0.0938 |
 | Reference non-speech (ms) | 539150 |
-| False alarm (ms) | 115947 |
-| False-alarm rate | 0.2151 |
-| Boundary precision | 0.0934 |
-| Boundary recall | 0.5186 |
-| Boundary median error (ms) | 98.0000 |
+| False alarm (ms) | 102493 |
+| False-alarm rate | 0.1901 |
+| Boundary precision | 0.0951 |
+| Boundary recall | 0.5279 |
+| Boundary median error (ms) | 99.0000 |
 | Boundary p95 error (ms) | 234.0000 |
 | Onset median error (ms) | 58.0000 |
 | Onset p95 error (ms) | 230.0000 |
 | Offset median error (ms) | 142.0000 |
 | Offset p95 error (ms) | 234.0000 |
-| Timestamp violation cases | 3 |
-| Timestamp violations | 3 |
+| Timestamp violation cases | 0 |
+| Timestamp violations | 0 |
 | Parity mismatch cases | 0 |
-| Median RTF | 0.1331 |
-| p95 RTF | 4.6037 |
-| Peak RSS (MiB) | 8059.9062 |
+| Median RTF | 0.1416 |
+| p95 RTF | 5.3647 |
+| Peak RSS (MiB) | 9451.6250 |
 | Peak CUDA allocation (MiB) | — |
 
 ## Per stratum
 
 | Group | Cases | WER | CER | Short exact | Non-speech nonempty | Miss (ms) | Miss rate | False alarm (ms) | False-alarm rate | Boundary P | Boundary R | Timestamp violations | RTF |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| split=tuning | 9 | 0.2607 | 0.1942 | 0.0000 | 0 | 231408 | 0.1325 | 5730 | 0.0456 | 0.0381 | 0.4706 | 1 | 0.1313 |
-| split=acceptance | 9 | 0.2222 | 0.1504 | 1.0000 | 0 | 237244 | 0.0723 | 110217 | 0.2666 | 0.1234 | 0.5276 | 2 | 0.1349 |
-| language=en | 18 | 0.2359 | 0.1659 | 0.5000 | 0 | 468652 | 0.0932 | 115947 | 0.2151 | 0.0934 | 0.5186 | 3 | 0.1331 |
-| stratum=30_minute | 1 | 0.2733 | 0.2055 | — | 0 | 231289 | 0.1335 | 5450 | 0.0805 | 0.0335 | 0.4375 | 0 | 0.1299 |
-| stratum=60_minute | 1 | 0.2280 | 0.1555 | — | 0 | 237128 | 0.0726 | 92921 | 0.2777 | 0.1224 | 0.5279 | 1 | 0.1355 |
-| stratum=background_noise | 1 | — | — | — | 0 | 0 | — | 0 | 0.0000 | — | — | 0 | 0.0102 |
-| stratum=clean | 8 | 0.0358 | 0.0136 | — | 0 | 92 | 0.0034 | 732 | 0.6393 | 0.7500 | 0.7500 | 1 | 0.1495 |
-| stratum=long_form | 2 | 0.2438 | 0.1729 | — | 0 | 468417 | 0.0937 | 98371 | 0.2445 | 0.0912 | 0.5142 | 1 | 0.1327 |
-| stratum=meeting | 2 | 0.2438 | 0.1729 | — | 0 | 468417 | 0.0937 | 98371 | 0.2445 | 0.0912 | 0.5142 | 1 | 0.1327 |
-| stratum=mono_16khz_flac | 12 | 0.2358 | 0.1659 | 0.5000 | 0 | 468536 | 0.0932 | 115892 | 0.2503 | 0.0924 | 0.5156 | 2 | 0.1352 |
-| stratum=multi_speaker | 2 | 0.2438 | 0.1729 | — | 0 | 468417 | 0.0937 | 98371 | 0.2445 | 0.0912 | 0.5142 | 1 | 0.1327 |
-| stratum=music | 4 | 0.5000 | 0.2857 | 0.5000 | 0 | 27 | 0.0315 | 16789 | 0.1400 | 0.5000 | 0.5000 | 0 | 0.0306 |
-| stratum=name | 1 | 0.0000 | 0.0000 | 1.0000 | 0 | 116 | 0.2755 | 55 | 0.1250 | 1.0000 | 1.0000 | 0 | 1.3946 |
-| stratum=non_speech | 4 | — | — | — | 0 | 0 | — | 0 | 0.0000 | — | — | 0 | 0.0155 |
-| stratum=pace_fast | 2 | 0.0403 | 0.0094 | — | 0 | — | — | — | — | — | — | 0 | 0.1631 |
-| stratum=pace_normal | 2 | 0.0232 | 0.0203 | — | 0 | — | — | — | — | — | — | 1 | 0.1362 |
-| stratum=pace_slow | 2 | 0.0545 | 0.0139 | — | 0 | — | — | — | — | — | — | 0 | 0.1301 |
-| stratum=pcm_wav | 1 | — | — | — | 0 | 0 | — | 0 | 0.0000 | — | — | 0 | 0.0193 |
-| stratum=read_speech | 8 | 0.0358 | 0.0136 | — | 0 | 92 | 0.0034 | 732 | 0.6393 | 0.7500 | 0.7500 | 1 | 0.1495 |
-| stratum=saxophone | 1 | — | — | — | 0 | 0 | — | 0 | 0.0000 | — | — | 0 | 0.0222 |
-| stratum=short_utterance | 4 | 0.5000 | 0.2857 | 0.5000 | 0 | 143 | 0.0833 | 16844 | 0.2808 | 0.7500 | 0.7500 | 1 | 0.7624 |
-| stratum=silence | 1 | — | — | — | 0 | 0 | — | 0 | 0.0000 | — | — | 0 | 0.0193 |
-| stratum=single_speaker | 6 | 0.0372 | 0.0149 | — | 0 | — | — | — | — | — | — | 1 | 0.1362 |
-| stratum=speech | 14 | 0.2359 | 0.1659 | 0.5000 | 0 | 468652 | 0.0932 | 115947 | 0.2502 | 0.0934 | 0.5186 | 3 | 0.1365 |
-| stratum=speech_over_music | 2 | 0.5000 | 0.2857 | 0.5000 | 0 | 27 | 0.0315 | 16789 | 0.2819 | 0.5000 | 0.5000 | 0 | 0.0846 |
-| stratum=spontaneous_speech | 2 | 0.2438 | 0.1729 | — | 0 | 468417 | 0.0937 | 98371 | 0.2445 | 0.0912 | 0.5142 | 1 | 0.1327 |
-| stratum=stereo_44khz_ogg | 5 | 0.5000 | 0.2857 | 0.5000 | 0 | 116 | 0.1352 | 55 | 0.0008 | 1.0000 | 1.0000 | 1 | 0.0222 |
-| stratum=word | 1 | 1.0000 | 0.6667 | 0.0000 | 0 | 0 | 0.0000 | 0 | — | 1.0000 | 1.0000 | 1 | 4.6037 |
+| split=tuning | 9 | 0.2607 | 0.1942 | 0.0000 | 0 | 232022 | 0.1328 | 4696 | 0.0373 | 0.0389 | 0.4804 | 0 | 0.1431 |
+| split=acceptance | 9 | 0.2222 | 0.1504 | 1.0000 | 0 | 239528 | 0.0730 | 97797 | 0.2366 | 0.1255 | 0.5368 | 0 | 0.1394 |
+| language=en | 18 | 0.2359 | 0.1659 | 0.5000 | 0 | 471550 | 0.0938 | 102493 | 0.1901 | 0.0951 | 0.5279 | 0 | 0.1416 |
+| stratum=30_minute | 1 | 0.2733 | 0.2055 | — | 0 | 231903 | 0.1339 | 4416 | 0.0652 | 0.0343 | 0.4479 | 0 | 0.1355 |
+| stratum=60_minute | 1 | 0.2280 | 0.1555 | — | 0 | 239412 | 0.0733 | 80501 | 0.2406 | 0.1246 | 0.5372 | 0 | 0.1369 |
+| stratum=background_noise | 1 | — | — | — | 0 | 0 | — | 0 | 0.0000 | — | — | 0 | 0.0104 |
+| stratum=clean | 8 | 0.0358 | 0.0136 | — | 0 | 92 | 0.0034 | 732 | 0.6393 | 0.7500 | 0.7500 | 0 | 0.1615 |
+| stratum=long_form | 2 | 0.2438 | 0.1729 | — | 0 | 471315 | 0.0943 | 84917 | 0.2111 | 0.0929 | 0.5237 | 0 | 0.1362 |
+| stratum=meeting | 2 | 0.2438 | 0.1729 | — | 0 | 471315 | 0.0943 | 84917 | 0.2111 | 0.0929 | 0.5237 | 0 | 0.1362 |
+| stratum=mono_16khz_flac | 12 | 0.2358 | 0.1659 | 0.5000 | 0 | 471434 | 0.0938 | 102438 | 0.2213 | 0.0941 | 0.5249 | 0 | 0.1444 |
+| stratum=mono_44khz_ogg | 1 | — | — | — | 0 | 0 | — | 0 | 0.0000 | — | — | 0 | 0.0104 |
+| stratum=multi_speaker | 2 | 0.2438 | 0.1729 | — | 0 | 471315 | 0.0943 | 84917 | 0.2111 | 0.0929 | 0.5237 | 0 | 0.1362 |
+| stratum=music | 4 | 0.5000 | 0.2857 | 0.5000 | 0 | 27 | 0.0315 | 16789 | 0.1400 | 0.5000 | 0.5000 | 0 | 0.0434 |
+| stratum=name | 1 | 0.0000 | 0.0000 | 1.0000 | 0 | 116 | 0.2755 | 55 | 0.1250 | 1.0000 | 1.0000 | 0 | 1.6527 |
+| stratum=non_speech | 4 | — | — | — | 0 | 0 | — | 0 | 0.0000 | — | — | 0 | 0.0187 |
+| stratum=pace_fast | 2 | 0.0403 | 0.0094 | — | 0 | — | — | — | — | — | — | 0 | 0.1856 |
+| stratum=pace_normal | 2 | 0.0232 | 0.0203 | — | 0 | — | — | — | — | — | — | 0 | 0.1472 |
+| stratum=pace_slow | 2 | 0.0545 | 0.0139 | — | 0 | — | — | — | — | — | — | 0 | 0.1412 |
+| stratum=pcm_wav | 1 | — | — | — | 0 | 0 | — | 0 | 0.0000 | — | — | 0 | 0.0197 |
+| stratum=read_speech | 8 | 0.0358 | 0.0136 | — | 0 | 92 | 0.0034 | 732 | 0.6393 | 0.7500 | 0.7500 | 0 | 0.1615 |
+| stratum=saxophone | 1 | — | — | — | 0 | 0 | — | 0 | 0.0000 | — | — | 0 | 0.0410 |
+| stratum=short_utterance | 4 | 0.5000 | 0.2857 | 0.5000 | 0 | 143 | 0.0833 | 16844 | 0.2808 | 0.7500 | 0.7500 | 0 | 0.8964 |
+| stratum=silence | 1 | — | — | — | 0 | 0 | — | 0 | 0.0000 | — | — | 0 | 0.0197 |
+| stratum=single_speaker | 6 | 0.0372 | 0.0149 | — | 0 | — | — | — | — | — | — | 0 | 0.1472 |
+| stratum=speech | 14 | 0.2359 | 0.1659 | 0.5000 | 0 | 471550 | 0.0938 | 102493 | 0.2212 | 0.0951 | 0.5279 | 0 | 0.1472 |
+| stratum=speech_over_music | 2 | 0.5000 | 0.2857 | 0.5000 | 0 | 27 | 0.0315 | 16789 | 0.2819 | 0.5000 | 0.5000 | 0 | 0.0930 |
+| stratum=spontaneous_speech | 2 | 0.2438 | 0.1729 | — | 0 | 471315 | 0.0943 | 84917 | 0.2111 | 0.0929 | 0.5237 | 0 | 0.1362 |
+| stratum=stereo_44khz_ogg | 4 | 0.5000 | 0.2857 | 0.5000 | 0 | 116 | 0.1352 | 55 | 0.0009 | 1.0000 | 1.0000 | 0 | 0.8468 |
+| stratum=word | 1 | 1.0000 | 0.6667 | 0.0000 | 0 | 0 | 0.0000 | 0 | — | 1.0000 | 1.0000 | 0 | 5.3647 |
 
 ## Gates
 
@@ -129,43 +130,43 @@ Gates evaluate only manifest rows with `split=acceptance`.
 
 | Gate | Rule | Actual | Status |
 |---|---:|---:|---|
-| `boundary_precision` | min 0.9500 | 0.1234 | DISABLED |
-| `boundary_recall` | min 0.9500 | 0.5276 | DISABLED |
+| `boundary_precision` | min 0.9500 | 0.1255 | DISABLED |
+| `boundary_recall` | min 0.9500 | 0.5368 | DISABLED |
 | `cer` | max 0.0500 | 0.1504 | DISABLED |
-| `false_alarm_rate` | max 0.0500 | 0.2666 | DISABLED |
-| `missed_speech_rate` | max 0.0500 | 0.0723 | DISABLED |
+| `false_alarm_rate` | max 0.0500 | 0.2366 | DISABLED |
+| `missed_speech_rate` | max 0.0500 | 0.0730 | DISABLED |
 | `non_speech_error_cases` | max 0.0000 | 0 | PASS |
 | `non_speech_nonempty_cases` | max 0.0000 | 0 | PASS |
 | `parity_mismatch_cases` | max 0.0000 | 0 | DISABLED |
 | `peak_cuda_mb_max` | max 16384.0000 | — | DISABLED |
-| `peak_rss_mb_max` | max 16384.0000 | 2700.9062 | DISABLED |
-| `rtf_median` | max 1.0000 | 0.1349 | DISABLED |
+| `peak_rss_mb_max` | max 16384.0000 | 2702.6406 | DISABLED |
+| `rtf_median` | max 1.0000 | 0.1394 | DISABLED |
 | `short_exact_match_rate` | min 1.0000 | 1.0000 | PASS |
-| `timestamp_violation_cases` | max 0.0000 | 2 | FAIL |
+| `timestamp_violation_cases` | max 0.0000 | 0 | PASS |
 | `wer` | max 0.1000 | 0.2222 | DISABLED |
 
 ## Cases
 
 | Case | Split | Strata | Duration (s) | Inference (s) | RTF | Peak RSS (MiB) | Peak CUDA (MiB) | WER | CER | Miss (ms) | Miss rate | False alarm (ms) | False-alarm rate | Timestamp violations | Error |
 |---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| silence-5s | acceptance | non_speech, silence, pcm_wav | 5.0000 | 0.0965 | 0.0193 | 427.4219 | — | — | — | 0 | — | 0 | 0.0000 | 0 | — |
-| rain-10s | tuning | non_speech, background_noise, stereo_44khz_ogg | 10.3310 | 0.1054 | 0.0102 | 433.9375 | — | — | — | 0 | — | 0 | 0.0000 | 0 | — |
-| music-jazz-sax-24s | tuning | non_speech, music, saxophone, stereo_44khz_ogg | 24.0000 | 0.5318 | 0.0222 | 558.6875 | — | — | — | 0 | — | 0 | 0.0000 | 0 | — |
-| music-36s | acceptance | non_speech, music, stereo_44khz_ogg | 36.4090 | 0.4277 | 0.0117 | 568.1562 | — | — | — | 0 | — | 0 | 0.0000 | 0 | — |
-| speech-over-music-ear | tuning | speech, music, speech_over_music, short_utterance, mono_16khz_flac | 24.0000 | 3.1219 | 0.1301 | 8059.9062 | — | 1.0000 | 0.6667 | 27 | 0.0618 | 90 | 0.0038 | 0 | — |
-| speech-over-music-john | acceptance | speech, music, speech_over_music, short_utterance, mono_16khz_flac | 36.4090 | 1.4224 | 0.0391 | 1363.5156 | — | 0.0000 | 0.0000 | 0 | 0.0000 | 16699 | 0.4640 | 0 | — |
-| short-word-ear | tuning | speech, short_utterance, word, stereo_44khz_ogg | 0.4370 | 2.0118 | 4.6037 | 2040.9062 | — | 1.0000 | 0.6667 | 0 | 0.0000 | 0 | — | 1 | — |
-| short-name-john | acceptance | speech, short_utterance, name, stereo_44khz_ogg | 0.8610 | 1.2008 | 1.3946 | 1206.2656 | — | 0.0000 | 0.0000 | 116 | 0.2755 | 55 | 0.1250 | 0 | — |
-| librispeech-sample-1 | tuning | speech, read_speech, clean, mono_16khz_flac | 13.6900 | 2.4534 | 0.1792 | 1586.2969 | — | 0.0455 | 0.0041 | 92 | 0.0068 | 190 | 0.9135 | 0 | — |
-| librispeech-sample-2 | acceptance | speech, read_speech, clean, mono_16khz_flac | 14.2150 | 2.3456 | 0.1650 | 1491.2188 | — | 0.0000 | 0.0000 | 0 | 0.0000 | 542 | 0.5784 | 0 | — |
-| pace-slow-tuning | tuning | speech, read_speech, clean, single_speaker, pace_slow, mono_16khz_flac | 34.9400 | 4.5868 | 0.1313 | 1170.0938 | — | 0.0127 | 0.0049 | — | — | — | — | 0 | — |
-| pace-normal-tuning | tuning | speech, read_speech, clean, single_speaker, pace_normal, mono_16khz_flac | 39.7550 | 5.4665 | 0.1375 | 1159.1562 | — | 0.0273 | 0.0265 | — | — | — | — | 0 | — |
-| pace-fast-tuning | tuning | speech, read_speech, clean, single_speaker, pace_fast, mono_16khz_flac | 36.4550 | 5.8908 | 0.1616 | 1176.4531 | — | 0.0441 | 0.0088 | — | — | — | — | 0 | — |
-| pace-slow-acceptance | acceptance | speech, read_speech, clean, single_speaker, pace_slow, mono_16khz_flac | 35.5900 | 4.5872 | 0.1289 | 1170.1875 | — | 0.0930 | 0.0208 | — | — | — | — | 0 | — |
-| pace-normal-acceptance | acceptance | speech, read_speech, clean, single_speaker, pace_normal, mono_16khz_flac | 53.6300 | 7.2369 | 0.1349 | 1175.0469 | — | 0.0201 | 0.0155 | — | — | — | — | 1 | — |
-| pace-fast-acceptance | acceptance | speech, read_speech, clean, single_speaker, pace_fast, mono_16khz_flac | 31.7750 | 5.2293 | 0.1646 | 1163.7969 | — | 0.0357 | 0.0100 | — | — | — | — | 0 | — |
-| ami-meeting-30m | tuning | speech, meeting, multi_speaker, spontaneous_speech, long_form, 30_minute, mono_16khz_flac | 1800.0000 | 233.7446 | 0.1299 | 2495.3750 | — | 0.2733 | 0.2055 | 231289 | 0.1335 | 5450 | 0.0805 | 0 | — |
-| ami-meeting-60m | acceptance | speech, meeting, multi_speaker, spontaneous_speech, long_form, 60_minute, mono_16khz_flac | 3600.0000 | 487.6979 | 0.1355 | 2700.9062 | — | 0.2280 | 0.1555 | 237128 | 0.0726 | 92921 | 0.2777 | 1 | — |
+| silence-5s | acceptance | non_speech, silence, pcm_wav | 5.0000 | 0.0987 | 0.0197 | 428.8594 | — | — | — | 0 | — | 0 | 0.0000 | 0 | — |
+| rain-10s | tuning | non_speech, background_noise, mono_44khz_ogg | 10.3310 | 0.1076 | 0.0104 | 436.1719 | — | — | — | 0 | — | 0 | 0.0000 | 0 | — |
+| music-jazz-sax-24s | tuning | non_speech, music, saxophone, stereo_44khz_ogg | 24.0000 | 0.9837 | 0.0410 | 559.3125 | — | — | — | 0 | — | 0 | 0.0000 | 0 | — |
+| music-36s | acceptance | non_speech, music, stereo_44khz_ogg | 36.4090 | 0.6445 | 0.0177 | 571.8281 | — | — | — | 0 | — | 0 | 0.0000 | 0 | — |
+| speech-over-music-ear | tuning | speech, music, speech_over_music, short_utterance, mono_16khz_flac | 24.0000 | 3.3622 | 0.1401 | 9451.6250 | — | 1.0000 | 0.6667 | 27 | 0.0618 | 90 | 0.0038 | 0 | — |
+| speech-over-music-john | acceptance | speech, music, speech_over_music, short_utterance, mono_16khz_flac | 36.4090 | 1.6717 | 0.0459 | 1297.3750 | — | 0.0000 | 0.0000 | 0 | 0.0000 | 16699 | 0.4640 | 0 | — |
+| short-word-ear | tuning | speech, short_utterance, word, stereo_44khz_ogg | 0.4370 | 2.3444 | 5.3647 | 2026.0469 | — | 1.0000 | 0.6667 | 0 | 0.0000 | 0 | — | 0 | — |
+| short-name-john | acceptance | speech, short_utterance, name, stereo_44khz_ogg | 0.8610 | 1.4229 | 1.6527 | 1222.7969 | — | 0.0000 | 0.0000 | 116 | 0.2755 | 55 | 0.1250 | 0 | — |
+| librispeech-sample-1 | tuning | speech, read_speech, clean, mono_16khz_flac | 13.6900 | 2.7604 | 0.2016 | 1631.3906 | — | 0.0455 | 0.0041 | 92 | 0.0068 | 190 | 0.9135 | 0 | — |
+| librispeech-sample-2 | acceptance | speech, read_speech, clean, mono_16khz_flac | 14.2150 | 2.6495 | 0.1864 | 1599.9062 | — | 0.0000 | 0.0000 | 0 | 0.0000 | 542 | 0.5784 | 0 | — |
+| pace-slow-tuning | tuning | speech, read_speech, clean, single_speaker, pace_slow, mono_16khz_flac | 34.9400 | 5.0002 | 0.1431 | 1205.1875 | — | 0.0127 | 0.0049 | — | — | — | — | 0 | — |
+| pace-normal-tuning | tuning | speech, read_speech, clean, single_speaker, pace_normal, mono_16khz_flac | 39.7550 | 5.9147 | 0.1488 | 1181.9844 | — | 0.0273 | 0.0265 | — | — | — | — | 0 | — |
+| pace-fast-tuning | tuning | speech, read_speech, clean, single_speaker, pace_fast, mono_16khz_flac | 36.4550 | 7.1773 | 0.1969 | 1200.1094 | — | 0.0441 | 0.0088 | — | — | — | — | 0 | — |
+| pace-slow-acceptance | acceptance | speech, read_speech, clean, single_speaker, pace_slow, mono_16khz_flac | 35.5900 | 4.9602 | 0.1394 | 1193.7031 | — | 0.0930 | 0.0208 | — | — | — | — | 0 | — |
+| pace-normal-acceptance | acceptance | speech, read_speech, clean, single_speaker, pace_normal, mono_16khz_flac | 53.6300 | 7.8137 | 0.1457 | 1197.7969 | — | 0.0201 | 0.0155 | — | — | — | — | 0 | — |
+| pace-fast-acceptance | acceptance | speech, read_speech, clean, single_speaker, pace_fast, mono_16khz_flac | 31.7750 | 5.5379 | 0.1743 | 1176.5625 | — | 0.0357 | 0.0100 | — | — | — | — | 0 | — |
+| ami-meeting-30m | tuning | speech, meeting, multi_speaker, spontaneous_speech, long_form, 30_minute, mono_16khz_flac | 1800.0000 | 243.9746 | 0.1355 | 2499.2031 | — | 0.2733 | 0.2055 | 231903 | 0.1339 | 4416 | 0.0652 | 0 | — |
+| ami-meeting-60m | acceptance | speech, meeting, multi_speaker, spontaneous_speech, long_form, 60_minute, mono_16khz_flac | 3600.0000 | 492.9831 | 0.1369 | 2702.6406 | — | 0.2280 | 0.1555 | 239412 | 0.0733 | 80501 | 0.2406 | 0 | — |
 
 ## Interpretation limits
 
