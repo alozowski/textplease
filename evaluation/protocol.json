@@ -5,6 +5,10 @@
     "repository": "openai/whisper-large-v3",
     "revision": "06f233fe06e710322aca913c1bc4249a0d71fce1"
   },
+  "audio_classifier": {
+    "repository": "MIT/ast-finetuned-audioset-10-10-0.4593",
+    "revision": "f826b80d28226b62986cc218e5cec390b1096902"
+  },
   "pipeline": {
     "pause_threshold": 2.0,
     "similarity_threshold": 1.0,

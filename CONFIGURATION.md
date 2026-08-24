@@ -107,7 +107,7 @@ This turns off the normal segmentation rules as far as practical. The result is 
 |---------|---------|-------|
 | `input_path` | Required | An existing audio or video file |
 | `output_path` | Required | Replaced if it already exists |
-| `model_name` | Required | A prefetched Hugging Face model ID or local directory; the web interface uses `openai/whisper-large-v3` |
+| `model_name` | Required | A Hugging Face model ID downloaded on first use, or a local directory; the web interface uses `openai/whisper-large-v3` |
 | `device` | `cpu` | Use `auto` for the best available device, `cuda` for NVIDIA, or `mps` for Apple Silicon |
 | `language` | `en` | Language code passed to Whisper |
 | `embedding_model` | `all-MiniLM-L6-v2` | Model used to compare segment meaning |
@@ -185,7 +185,7 @@ Speech detection is automatic. Changing transcript grouping does not change the 
 | Whisper runs out of memory | Lower `performance.whisper_batch_size` |
 | Embedding runs out of memory | Lower `performance.similarity_batch_size` |
 | GPU transcription runs out of memory | Use `device: "cpu"` or a smaller compatible Whisper model |
-| A model is unavailable locally | Prefetch its model ID as described in the README, then run again |
+| A model download fails | Check the network connection and Hugging Face access, then try again |
 
 ## A note about CLI values
 
