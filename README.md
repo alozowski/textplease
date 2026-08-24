@@ -13,9 +13,9 @@ textplease turns audio and video files into text with timestamps. It runs open-s
 
 You need:
 
-- [Python 3.12](https://www.python.org/downloads/).
-- [uv](https://docs.astral.sh/uv/getting-started/installation/).
-- [FFmpeg](https://ffmpeg.org/download.html), with `ffmpeg` available on `PATH`.
+- [Python 3.12](https://www.python.org/downloads/)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/)
+- [FFmpeg](https://ffmpeg.org/download.html), with `ffmpeg` available on `PATH`
 
 Then install the project:
 
@@ -49,7 +49,7 @@ See [config_example.yaml](examples/config_example.yaml) for every option.
 
 Your audio and transcript are not sent to Hugging Face or another cloud API. Hugging Face receives model and metadata requests when a model is first used. Later runs reuse the local cache. Disconnect the network or use a firewall if you need to enforce offline use once the required models are cached.
 
-The web app listens only on `127.0.0.1`. It disables public share links, analytics, and monitoring. Each job stores its transcript, config, and log under `output/`. **Clear** deletes those files. The app removes temporary audio after each job. It also clears the upload cache on restart and removes uploaded files older than 24 hours. Downloaded models stay in the model cache for reuse.
+The web app listens only on `127.0.0.1`. It disables public share links, analytics, and monitoring. Each job stores its transcript, config, and log under `output/`. "Clear" deletes those files. The app removes temporary audio after each job. It also clears the upload cache on restart and removes uploaded files older than 24 hours. Downloaded models stay in the model cache for reuse.
 
 ## Output
 
