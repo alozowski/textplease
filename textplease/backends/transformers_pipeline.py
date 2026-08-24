@@ -49,7 +49,6 @@ def _load_model_and_processor(
 
 def _get_speech_segments(
     audio_array: np.ndarray,
-    pause_threshold: float,
 ) -> list[dict[str, int]]:
     """Run Silero VAD and return bounded speech intervals in source samples."""
     vad_model = load_silero_vad()
@@ -61,7 +60,7 @@ def _get_speech_segments(
         threshold=0.5,
         sampling_rate=TARGET_SAMPLE_RATE,
         min_speech_duration_ms=250,
-        min_silence_duration_ms=int(pause_threshold * 1000),
+        min_silence_duration_ms=2000,
         speech_pad_ms=100,
         return_seconds=False,
     )
@@ -215,7 +214,7 @@ def transcribe(
     audio_path: str,
     model_name: str,
     device: str,
-    pause_threshold: float = 2.0,
+    *,
     language: str = "en",
     batch_size: int = 1,
 ) -> list[dict[str, str]]:
@@ -224,7 +223,7 @@ def transcribe(
         raise ValueError("Whisper batch size must be positive")
 
     audio_array = load_pcm_wav(audio_path)
-    speech_segments = _get_speech_segments(audio_array, pause_threshold)
+    speech_segments = _get_speech_segments(audio_array)
     if not speech_segments:
         logger.info("No speech detected")
         return []

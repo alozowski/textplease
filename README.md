@@ -44,9 +44,9 @@ uv run --locked --no-dev hf download openai/whisper-large-v3
 uv run --locked --no-dev hf download sentence-transformers/all-MiniLM-L6-v2
 ```
 
-After that, `textplease` loads models only from local files. Transcription fails instead of downloading when a configured
-model is missing. Prefetch any custom Hugging Face model ID with the same `hf download <model-id>` command. A local model
-directory also works.
+After preparation, `textplease` loads model weights from the cache or a local directory and does not download missing
+weights during a transcription job. Hugging Face may still receive non-inference model metadata requests. Prefetch any
+custom Hugging Face model ID with the same `hf download <model-id>` command. A local model directory also works.
 
 ### Web interface
 
@@ -77,9 +77,10 @@ The transcript is written to the `output_path` set in the config. For the exampl
 
 ## Local privacy and retained files
 
-Audio and transcript content are processed locally. During transcription, supported model loaders are restricted to
-local files. The Gradio UI binds to `127.0.0.1`, cannot create a share tunnel, and has analytics and monitoring disabled.
-Use an operating-system firewall or disconnect the network when an external guarantee is required.
+Audio and transcript content are processed on-device and are not uploaded to Hugging Face or another cloud inference
+API. Model acquisition and non-inference Hugging Face metadata may use the network. The Gradio UI binds to `127.0.0.1`,
+cannot create a share tunnel, and has analytics and monitoring disabled. After preparing models, use an operating-system
+firewall or disconnect the network if an externally enforced zero-network guarantee is required.
 
 Temporary decoded PCM is removed after each job. Gradio checks hourly for uploaded cache files older than 24 hours and
 clears its cache when the server restarts. Hugging Face model caches persist for reuse. The web interface also keeps each
@@ -178,12 +179,13 @@ textplease runs a modular pipeline:
 1. Audio processing – extracts and normalizes audio from the input file.
 2. ASR transcription – converts speech to text with multilingual Whisper models.
    - Language is selectable from the languages supported by the configured Whisper checkpoint. The seed evaluation currently validates English only.
-   - Silero-VAD-negative audio succeeds with an empty transcript and never loads Whisper. Detector-positive non-speech remains a tracked release blocker.
+   - Silero VAD uses one internal automatic endpointing policy. Transcript grouping settings cannot change Whisper input.
+   - VAD-negative audio succeeds with an empty transcript and never loads Whisper. Detector-positive non-speech remains a tracked release blocker.
    - Whisper batches VAD chunks on CUDA while retaining the same generation and timestamp settings.
    - Whisper runs via `model.generate()` with temperature fallback and compression-ratio quality gating.
    - A post-transcription filter removes known Whisper hallucination phrases.
    - Deduplication removes residual word overlap at chunk boundaries.
-3. Segmentation – groups text into coherent segments using pause detection (aligned with VAD boundaries) and semantic similarity from sentence embeddings.
+3. Segmentation – groups recognized spans using measured gaps and semantic similarity. Its pause setting changes layout only.
 4. Post-processing – enforces length constraints, merges short segments, splits long ones, and writes the CSV.
 
 ```mermaid

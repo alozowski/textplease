@@ -47,18 +47,13 @@ Only `input_path`, `output_path`, and `model_name` are required. Everything else
 
 Default: `2.0` seconds
 
-This decides how long a silence must be before it counts as a break. It affects both the speech recognition step and the final transcript segments.
+This is the pause threshold used for ordinary grouping of recognized pieces into transcript segments.
 
-- Use a **lower** value to create more breaks.
-- Use a **higher** value to keep speech together across longer pauses.
+- Use a **lower** value to keep more recognized pieces separate.
+- Use a **higher** value to allow more joining across pauses.
 
-Good starting points:
-
-| Recording | Try |
-|-----------|-----|
-| Subtitles or fast speech | `0.5`-`1.0` |
-| Conversation or interview | `2.0` |
-| Slow speech with thinking pauses | `3.0`-`4.0` |
+This setting does not change Silero VAD, the audio sent to Whisper, decoder text, or raw timestamps. Speech detection is
+automatic.
 
 ### `similarity_threshold`
 
@@ -95,41 +90,7 @@ max_segment_words: 100
 
 Set both minimums to `1` if short replies such as “Yes” or “No” should stay on their own.
 
-## Useful presets
-
-Add one of these blocks to your config, replacing the same settings if they are already there.
-
-### Subtitles
-
-```yaml
-pause_threshold: 1.0
-similarity_threshold: 1.0
-min_segment_words: 1
-min_segment_chars: 1
-max_segment_words: 40
-```
-
-### Interview or podcast
-
-```yaml
-pause_threshold: 3.0
-similarity_threshold: 0.75
-min_segment_words: 3
-min_segment_chars: 15
-max_segment_words: 150
-```
-
-### Meeting notes
-
-```yaml
-pause_threshold: 2.0
-similarity_threshold: 0.8
-min_segment_words: 3
-min_segment_chars: 15
-max_segment_words: 80
-```
-
-### Keep Whisper's segments mostly unchanged
+## Keep Whisper's segments mostly unchanged
 
 ```yaml
 similarity_threshold: 1.0
@@ -194,7 +155,7 @@ files and logs.
 The web interface lets you change:
 
 - device and language
-- pause and similarity thresholds
+- transcript-grouping pause and similarity thresholds
 - minimum words, minimum characters, and maximum words
 
 It chooses the input and output paths for you and uses the default Whisper and embedding models. Performance and logging settings are available only in a CLI YAML file.
@@ -209,14 +170,16 @@ In the usual case, two neighbouring segments are joined only when:
 
 Short fragments get an extra cleanup pass. They may be joined without passing the similarity check, but a merge is never allowed to create a segment longer than `max_segment_words`. If no suitable neighbour is available, the fragment is left as it is.
 
+Speech detection is automatic. Changing transcript grouping does not change the audio sent to Whisper.
+
 ## Troubleshooting
 
 | If you see this | Try this |
 |-----------------|----------|
 | Too many tiny segments | Raise `min_segment_words` or `min_segment_chars` |
 | Segments are too long | Lower `max_segment_words` |
-| Not enough breaks | Lower `pause_threshold` or raise `similarity_threshold` |
-| Too many breaks | Raise `pause_threshold` or lower `similarity_threshold` |
+| Not enough transcript breaks | Lower `pause_threshold` or raise `similarity_threshold` |
+| Too many transcript breaks | Raise `pause_threshold` or lower `similarity_threshold` |
 | Unrelated sentences are joined | Raise `similarity_threshold` to about `0.85` |
 | Short replies disappear into nearby text | Set both minimums to `1` |
 | Whisper runs out of memory | Lower `performance.whisper_batch_size` |

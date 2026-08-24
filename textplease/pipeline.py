@@ -165,7 +165,6 @@ def _execute_transcription_stage(params: dict, temporary_directory: str | Path) 
         params["model_name"],
         params["device"],
         temporary_directory=temporary_directory,
-        pause_threshold=params["pause_threshold"],
         language=params["language"],
         batch_size=params["whisper_batch_size"],
     )
@@ -225,9 +224,10 @@ def run_transcription_pipeline(config: dict) -> None:
         params["whisper_batch_size"] = 4 if params["device"] == "cuda" else 1
 
     logger.info(f"Input: {params['input_path']} → Output: {params['output_path']}")
-    logger.info(f"ASR: {params['model_name']} | Device: {params['device']} | Pause: {params['pause_threshold']}s")
+    logger.info(f"ASR: {params['model_name']} | Device: {params['device']}")
     logger.info(
-        f"Embedding: {params['embedding_model_name']} | Similarity threshold: {params['similarity_threshold']}"
+        f"Segmentation: {params['embedding_model_name']} | "
+        f"Similarity threshold: {params['similarity_threshold']} | Grouping pause: {params['pause_threshold']}s"
     )
 
     output_parent = Path(params["output_path"]).resolve().parent
