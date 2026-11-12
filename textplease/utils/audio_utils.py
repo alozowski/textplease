@@ -16,6 +16,23 @@ FFMPEG_INSTALL_ERROR = (
 )
 
 
+def _id3v2_payload_offset(path: Path) -> int | None:
+    """Return the payload offset after a valid leading ID3v2 tag."""
+    with path.open("rb") as stream:
+        header = stream.read(10)
+        if (
+            len(header) != 10
+            or header[:3] != b"ID3"
+            or header[3] not in {2, 3, 4}
+            or any(byte & 0x80 for byte in header[6:10])
+        ):
+            return None
+        tag_size = 10 + sum(byte << shift for byte, shift in zip(header[6:10], (21, 14, 7, 0), strict=True))
+        if header[3] == 4 and header[5] & 0x10:
+            tag_size += 10
+        return tag_size if tag_size < path.stat().st_size else None
+
+
 def normalize_audio(input_path: str, temporary_directory: str | Path) -> str:
     """Normalize the first audio stream to a private mono 16 kHz PCM16 WAV."""
     input_file = Path(input_path)
@@ -32,30 +49,34 @@ def normalize_audio(input_path: str, temporary_directory: str | Path) -> str:
     work_directory.mkdir(mode=0o700, parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(prefix="audio-", suffix=".wav", dir=work_directory, delete=False) as output_file:
         output_path = Path(output_file.name)
+    command_prefix = [ffmpeg_executable, "-nostdin", "-hide_banner", "-loglevel", "error"]
+    command_suffix = [
+        "-i",
+        str(input_file),
+        "-map",
+        "0:a:0",
+        "-ac",
+        str(TARGET_CHANNELS),
+        "-ar",
+        str(TARGET_SAMPLE_RATE),
+        "-c:a",
+        "pcm_s16le",
+        "-y",
+        str(output_path),
+    ]
     conversion = subprocess.run(
-        [
-            ffmpeg_executable,
-            "-nostdin",
-            "-hide_banner",
-            "-loglevel",
-            "error",
-            "-i",
-            str(input_file),
-            "-map",
-            "0:a:0",
-            "-ac",
-            str(TARGET_CHANNELS),
-            "-ar",
-            str(TARGET_SAMPLE_RATE),
-            "-c:a",
-            "pcm_s16le",
-            "-y",
-            str(output_path),
-        ],
+        [*command_prefix, *command_suffix],
         capture_output=True,
         text=True,
         check=False,
     )
+    if conversion.returncode != 0 and (payload_offset := _id3v2_payload_offset(input_file)) is not None:
+        conversion = subprocess.run(
+            [*command_prefix, "-skip_initial_bytes", str(payload_offset), *command_suffix],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
     if conversion.returncode != 0:
         output_path.unlink(missing_ok=True)

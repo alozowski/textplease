@@ -6,7 +6,7 @@ textplease turns audio and video files into text with timestamps. It runs open-s
 
 - Local web app and YAML-based command line.
 - Start and end times for each text segment.
-- Automatic speech detection and filtering of music without speech.
+- Local speech and music checks before transcription.
 - Support for long files and compatible multilingual Whisper models.
 
 ## Install
@@ -61,13 +61,27 @@ TextPlease writes tab-separated columns. The example config uses a `.csv` name, 
 
 ## Quality status
 
-The English tests cover silence, rain, music, speech over music, short speech, and clean read speech at three speeds. They also cover continuous 30 and 60 minute meetings. The enabled non-speech, acceptance short-text, and timestamp gates pass. WER, boundary, resource, and broader quality thresholds remain disabled while evidence grows.
+The published evaluation is English-only. It covers silence, rain, music, speech over music, short speech, clean read speech at three speeds, and continuous 30 and 60 minute meetings. The enabled non-speech, acceptance short-text, and timestamp gates pass. WER, boundary, resource, and broader quality thresholds remain disabled while evidence grows.
 
 The [baseline](evaluation/BASELINE.md) has all results and audio credits. The [protocol](evaluation/protocol.json) defines the gates. The [manifest](evaluation/manifest.jsonl) records the source, license, credit, changes, and hash for each file. Use `uv run --locked python scripts/evaluate_audio_quality.py --help` to find the inference and scoring commands.
 
+## Known limitations
+
+Whisper can write convincing text that nobody spoke. This happens most often with quiet, unclear, or non-speech audio. We found subtitle credits and a long unclear passage in a private Russian interview. Our public test set is English-only, so it does not validate Russian or the other languages in the web app. Always review transcripts before using them for research, publication, or sensitive decisions.
+
+The app uses the first audio stream and mixes its channels to mono. This can lose sound when speakers are on separate channels or channels have opposite phase. Keep the original media.
+
 ## How it works
 
-FFmpeg makes mono 16 kHz PCM for Whisper. Silero VAD finds likely speech. A local AudioSet model suppresses output that it rates as music without speech. Whisper transcribes what remains. The app writes each retained, nonblank Whisper span and timestamp without rewriting its text.
+FFmpeg converts the media to mono 16 kHz PCM. Silero VAD marks likely speech. A local AudioSet model rejects windows that appear to contain music without speech. The remaining intervals are grouped by `whisper_batch_size`. Each batch is padded to its longest interval and passed through one top-level `model.generate` call. Whisper uses float16 on CUDA and float32 on MPS or CPU. If a batch with several intervals runs out of accelerator memory, the app retries each interval alone.
+
+When a batch contains an interval longer than about 30 seconds, Transformers uses Whisper's long-form mode. It starts with greedy decoding at temperature `0.0`. If an item fails a quality check, only that item is retried at `0.2`, `0.4`, `0.6`, `0.8`, then `1.0`.
+
+- A token-byte zlib compression ratio above `1.35` flags repeated output.
+- An average token log-probability below `-1.0` flags low-confidence output.
+- A no-speech probability above `0.6`, combined with an average log-probability below `-1.0`, skips the interval as silence.
+
+Transformers measures compression from token ID bytes. OpenAI Whisper measures UTF-8 text and uses a `2.4` default. Finally, the app clips each timestamp to its source interval, shifts it to the full recording, and writes the model's nonblank text without rewriting it.
 
 ## License
 

@@ -101,6 +101,40 @@ def test_mono_16k_float_wav_is_reencoded_as_pcm16(tmp_path):
 
 
 @requires_ffmpeg
+def test_id3_prefixed_wav_is_normalized_without_rewriting_source(tmp_path):
+    source = _make_audio(tmp_path / "tagged.wav")
+    wav_bytes = source.read_bytes()
+    source.write_bytes(b"ID3\x03\x00\x00\x00\x00\x00\x00" + wav_bytes)
+    original_bytes = source.read_bytes()
+
+    out = normalize_audio(str(source), tmp_path / "temporary")
+
+    assert _wav_props(out) == (1, 16000, 2)
+    assert source.read_bytes() == original_bytes
+
+
+@requires_ffmpeg
+def test_invalid_id3_prefixed_audio_retries_once(monkeypatch, tmp_path):
+    source = tmp_path / "invalid.wav"
+    source.write_bytes(b"ID3\x03\x00\x00\x00\x00\x00\x00not audio")
+    calls = []
+    run = subprocess.run
+
+    def record_run(command, **kwargs):
+        calls.append(command)
+        return run(command, **kwargs)
+
+    monkeypatch.setattr(audio_utils.subprocess, "run", record_run)
+
+    with pytest.raises(RuntimeError, match="Audio conversion failed"):
+        normalize_audio(str(source), tmp_path / "temporary")
+
+    assert len(calls) == 2
+    assert "-skip_initial_bytes" not in calls[0]
+    assert calls[1][calls[1].index("-skip_initial_bytes") + 1] == "10"
+
+
+@requires_ffmpeg
 def test_whisper_adapter_normalizes_media_before_transcription(monkeypatch, tmp_path):
     src = _make_audio(tmp_path / "clip.ogg")
 
