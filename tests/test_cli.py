@@ -1,5 +1,6 @@
 import os
 import sys
+import logging
 from unittest.mock import Mock
 
 import pytest
@@ -53,3 +54,23 @@ def test_yaml_cannot_change_process_environment(monkeypatch, tmp_path, caplog):
     assert variable_name not in os.environ
     assert private_value not in caplog.text
     run_pipeline.assert_called_once()
+
+
+@pytest.mark.parametrize("web", [False, True])
+def test_debug_startup_reaches_job_configuration(monkeypatch, tmp_path, web):
+    config = tmp_path / "config.yaml"
+    config.write_text("input_path: input.wav\noutput_path: output.tsv\nmodel_name: test\n")
+    monkeypatch.setattr(sys, "argv", ["textplease", "--debug"] + (["--gradio"] if web else ["--config", str(config)]))
+    monkeypatch.setattr(main.shutil, "which", lambda executable: "/usr/bin/ffmpeg")
+    logging_setup = Mock()
+    launch = Mock()
+    runner = Mock()
+    monkeypatch.setattr(main, "configure_logging", logging_setup)
+    monkeypatch.setattr(main, "launch_gradio", launch)
+    monkeypatch.setattr(main, "run_transcription_pipeline", runner)
+    main.main()
+    logging_setup.assert_called_once_with(level=logging.DEBUG)
+    if web:
+        launch.assert_called_once_with(debug=True)
+    else:
+        assert runner.call_args.args[0]["log_level"] == "DEBUG"

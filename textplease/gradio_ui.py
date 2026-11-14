@@ -78,6 +78,8 @@ def start_transcription(
     language: str,
     device: str,
     run: dict | None,
+    *,
+    debug: bool = False,
 ) -> tuple[object, ...]:
     """Launch one isolated transcription job."""
 
@@ -124,7 +126,7 @@ def start_transcription(
         "output_path": str(output_path),
         "model_name": DEFAULT_MODEL,
         "device": device,
-        "log_level": "INFO",
+        "log_level": "DEBUG" if debug else "INFO",
         "language": language,
     }
     try:
@@ -317,7 +319,7 @@ def preview_transcript(show: bool, file_path: str | None):
         )
 
     try:
-        df = pd.read_csv(path, sep="\t")
+        df = pd.read_csv(path, sep="\t", keep_default_na=False)
 
         if df.empty:
             return gr.update(
@@ -345,6 +347,8 @@ def preview_transcript(show: bool, file_path: str | None):
 def launch_gradio(
     output_directory: Path | None = None,
     worker: PersistentPipelineWorker | None = None,
+    *,
+    debug: bool = False,
 ) -> None:
     """Launch the Gradio web interface."""
     output_directory = output_directory or Path("output")
@@ -451,7 +455,7 @@ def launch_gradio(
         ]
 
         run_button.click(
-            partial(start_transcription, worker, output_directory),
+            partial(start_transcription, worker, output_directory, debug=debug),
             inputs=[
                 audio_input,
                 language,

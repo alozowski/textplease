@@ -11,37 +11,26 @@ from textplease.utils.audio_utils import TARGET_SAMPLE_RATE
 
 
 class FakeTokenizer:
-    def __init__(
-        self,
-        include_offsets: bool = True,
-        timestamp: tuple[float | None, float | None] = (0.0, 0.5),
-    ):
-        self.include_offsets = include_offsets
-        self.timestamp = timestamp
+    eos_token_id = 100
+
+    def __init__(self, include_text=True):
+        self.include_text = include_text
+
+    def convert_tokens_to_ids(self, token):
+        assert token == "<|0.00|>"
+        return 1000
 
     def decode(self, token_ids, **kwargs):
-        if not self.include_offsets:
-            return {"offsets": []}
-        segment_number = int(token_ids[0])
-        return {
-            "offsets": [
-                {
-                    "text": f"Segment {segment_number}",
-                    "timestamp": self.timestamp,
-                }
-            ]
-        }
+        assert not kwargs.get("output_offsets")
+        if not self.include_text:
+            return ""
+        number = next(int(token) for token in token_ids if int(token) < self.eos_token_id)
+        return f"Segment {number}"
 
 
 class FakeProcessor:
-    feature_extractor = SimpleNamespace(chunk_length=30)
-
-    def __init__(
-        self,
-        include_offsets: bool = True,
-        timestamp: tuple[float | None, float | None] = (0.0, 0.5),
-    ):
-        self.tokenizer = FakeTokenizer(include_offsets, timestamp)
+    def __init__(self, include_text: bool = True):
+        self.tokenizer = FakeTokenizer(include_text)
         self.audio_batches = []
 
     def __call__(self, audio, **kwargs):
@@ -58,20 +47,20 @@ class FakeProcessor:
 
 
 class FakeModel:
-    config = SimpleNamespace(max_source_positions=1500)
-
     def __init__(
         self,
         fail_batched: bool = False,
         error: Exception | None = None,
         *,
         is_multilingual: bool = True,
+        timestamp=(0.0, 0.5),
     ):
         self.batch_sizes = []
         self.fail_batched = fail_batched
         self.error = error
         self.generation_config = SimpleNamespace(is_multilingual=is_multilingual)
         self.generation_calls = []
+        self.timestamp = timestamp
 
     def generate(self, **kwargs):
         self.generation_calls.append(kwargs)
@@ -82,7 +71,13 @@ class FakeModel:
             raise self.error
         if self.fail_batched and batch_size > 1:
             raise torch.OutOfMemoryError
-        return input_features[:, 0, :].to(dtype=torch.long)
+        sequences = [torch.tensor([1000, int(item[0, 0]), 1025]) for item in input_features]
+        return {
+            "sequences": sequences,
+            "segments": [
+                [{"tokens": tokens, "start": self.timestamp[0], "end": self.timestamp[1]}] for tokens in sequences
+            ],
+        }
 
 
 @pytest.fixture
@@ -136,12 +131,12 @@ def _run_transcription(
     model = FakeModel(fail_batched=fail_batched, is_multilingual=is_multilingual)
     processor = FakeProcessor()
 
-    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args: (model, processor))
+    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args, **kwargs: (model, processor))
     monkeypatch.setattr(transformers_pipeline, "load_pcm_wav", lambda path: audio)
     monkeypatch.setattr(
         transformers_pipeline,
         "_get_speech_segments",
-        lambda *args: (speech_segments, [(0, len(audio))]),
+        lambda *args, **kwargs: (speech_segments, [(0, len(audio))]),
     )
     monkeypatch.setattr(transformers_pipeline.torch.cuda, "is_available", lambda: False)
 
@@ -171,7 +166,7 @@ def test_transcribe_retries_batch_after_out_of_memory(monkeypatch):
     assert model.batch_sizes == [2, 1, 1, 1]
 
 
-def test_transcribe_clamps_offsets_and_preserves_terminal_text(monkeypatch):
+def test_transcribe_preserves_text_with_uncertain_timing(monkeypatch):
     interval_start = TARGET_SAMPLE_RATE // 4
     interval_end = 3 * TARGET_SAMPLE_RATE // 4
     audio = np.ones(TARGET_SAMPLE_RATE, dtype=np.float32)
@@ -184,7 +179,7 @@ def test_transcribe_clamps_offsets_and_preserves_terminal_text(monkeypatch):
     monkeypatch.setattr(
         transformers_pipeline,
         "_get_speech_segments",
-        lambda *args: (
+        lambda *args, **kwargs: (
             [{"start": interval_start, "end": interval_end}],
             [(interval_start, interval_end)],
         ),
@@ -192,12 +187,12 @@ def test_transcribe_clamps_offsets_and_preserves_terminal_text(monkeypatch):
     monkeypatch.setattr(
         transformers_pipeline,
         "_load_model_and_processor",
-        lambda *args: (FakeModel(), FakeProcessor()),
+        lambda *args, **kwargs: (FakeModel(), FakeProcessor()),
     )
     monkeypatch.setattr(
         transformers_pipeline,
         "_transcribe_speech_segments",
-        lambda *args: [offsets],
+        lambda *args, **kwargs: [offsets],
     )
     monkeypatch.setattr(transformers_pipeline.torch.cuda, "is_available", lambda: False)
 
@@ -207,15 +202,11 @@ def test_transcribe_clamps_offsets_and_preserves_terminal_text(monkeypatch):
         "cpu",
     )
 
-    assert segments == [
-        {
-            "text": " Leading. Still leading.",
-            "start_time": "00:00:00.250",
-            "end_time": "00:00:00.450",
-        },
-        {"text": " overlap", "start_time": "00:00:00.450", "end_time": "00:00:00.550"},
-        {"text": " terminal", "start_time": "00:00:00.650", "end_time": "00:00:00.750"},
-    ]
+    assert [segment["text"] for segment in segments] == [item["text"] for item in offsets]
+    assert all(set(segment) == {"start_time", "end_time", "text"} for segment in segments)
+    assert segments[0]["start_time"] == ""
+    assert segments[1]["start_time"] == "00:00:00.350"
+    assert segments[-1]["end_time"] == ""
 
 
 def test_english_only_model_does_not_request_language_or_task(monkeypatch):
@@ -296,7 +287,7 @@ def test_classifier_ignores_unclassifiable_tail(monkeypatch, audio_classifier):
         "get_speech_timestamps",
         lambda *args, **kwargs: [{"start": 0, "end": len(audio)}],
     )
-    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args: (model, processor))
+    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args, **kwargs: (model, processor))
     monkeypatch.setattr(transformers_pipeline.torch.cuda, "is_available", lambda: False)
 
     assert transformers_pipeline.transcribe("input.wav", "test-model", "cpu")
@@ -322,8 +313,8 @@ def test_classifier_keeps_short_speech_tail(monkeypatch, audio_classifier):
             ]
         )
     )
-    model = FakeModel()
-    processor = FakeProcessor(timestamp=(10.0, 10.5))
+    model = FakeModel(timestamp=(10.0, 10.5))
+    processor = FakeProcessor()
     monkeypatch.setattr(transformers_pipeline, "load_pcm_wav", lambda path: audio)
     monkeypatch.setattr(transformers_pipeline, "load_silero_vad", lambda: object())
     monkeypatch.setattr(
@@ -331,7 +322,7 @@ def test_classifier_keeps_short_speech_tail(monkeypatch, audio_classifier):
         "get_speech_timestamps",
         lambda *args, **kwargs: [{"start": 0, "end": len(audio)}],
     )
-    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args: (model, processor))
+    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args, **kwargs: (model, processor))
     monkeypatch.setattr(transformers_pipeline.torch.cuda, "is_available", lambda: False)
 
     segments = transformers_pipeline.transcribe("mixed.wav", "test-model", "cpu")
@@ -348,16 +339,18 @@ def test_transcribe_drops_text_from_music_only_windows(monkeypatch):
     monkeypatch.setattr(
         transformers_pipeline,
         "_get_speech_segments",
-        lambda *args: (
+        lambda *args, **kwargs: (
             [{"start": 0, "end": len(audio)}],
             [(10 * TARGET_SAMPLE_RATE, 20 * TARGET_SAMPLE_RATE)],
         ),
     )
-    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args: (object(), object()))
+    monkeypatch.setattr(
+        transformers_pipeline, "_load_model_and_processor", lambda *args, **kwargs: (object(), object())
+    )
     monkeypatch.setattr(
         transformers_pipeline,
         "_transcribe_chunks",
-        lambda *args: [
+        lambda *args, **kwargs: [
             {"text": "music intro", "timestamp": (1.0, 2.0)},
             {"text": "spoken words", "timestamp": (12.0, 13.0)},
             {"text": "music outro", "timestamp": (21.0, 22.0)},
@@ -382,7 +375,7 @@ def test_every_detected_short_interval_reaches_whisper(monkeypatch, audio_classi
     monkeypatch.setattr(transformers_pipeline, "load_pcm_wav", lambda path: audio)
     monkeypatch.setattr(transformers_pipeline, "load_silero_vad", lambda: object())
     monkeypatch.setattr(transformers_pipeline, "get_speech_timestamps", detector)
-    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args: (model, processor))
+    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args, **kwargs: (model, processor))
     monkeypatch.setattr(transformers_pipeline.torch.cuda, "is_available", lambda: False)
 
     segments = transformers_pipeline.transcribe("input.wav", "test-model", "cpu")
@@ -409,7 +402,7 @@ def test_detected_intervals_are_clamped_to_audio_bounds(monkeypatch, audio_class
     monkeypatch.setattr(transformers_pipeline, "load_pcm_wav", lambda path: audio)
     monkeypatch.setattr(transformers_pipeline, "load_silero_vad", lambda: object())
     monkeypatch.setattr(transformers_pipeline, "get_speech_timestamps", detector)
-    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args: (model, processor))
+    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args, **kwargs: (model, processor))
     monkeypatch.setattr(transformers_pipeline.torch.cuda, "is_available", lambda: False)
 
     segments = transformers_pipeline.transcribe("input.wav", "test-model", "cpu")
@@ -424,7 +417,7 @@ def test_empty_decoder_result_does_not_retry_full_audio(monkeypatch, audio_class
     start = 137
     end = 8137
     model = FakeModel()
-    processor = FakeProcessor(include_offsets=False)
+    processor = FakeProcessor(include_text=False)
 
     monkeypatch.setattr(transformers_pipeline, "load_pcm_wav", lambda path: audio)
     monkeypatch.setattr(transformers_pipeline, "load_silero_vad", lambda: object())
@@ -433,7 +426,7 @@ def test_empty_decoder_result_does_not_retry_full_audio(monkeypatch, audio_class
         "get_speech_timestamps",
         lambda *args, **kwargs: [{"start": start, "end": end}],
     )
-    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args: (model, processor))
+    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args, **kwargs: (model, processor))
     monkeypatch.setattr(transformers_pipeline.torch.cuda, "is_available", lambda: False)
 
     assert transformers_pipeline.transcribe("input.wav", "test-model", "cpu") == []
@@ -460,7 +453,7 @@ def test_single_segment_decoder_error_propagates(monkeypatch, audio_classifier, 
     monkeypatch.setattr(
         transformers_pipeline,
         "_load_model_and_processor",
-        lambda *args: (model, FakeProcessor()),
+        lambda *args, **kwargs: (model, FakeProcessor()),
     )
     monkeypatch.setattr(transformers_pipeline.torch.cuda, "is_available", lambda: False)
 
@@ -490,3 +483,215 @@ def test_model_loader_error_propagates(monkeypatch, audio_classifier):
 
     assert error.value is expected_error
     model_loader.assert_called_once()
+
+
+@pytest.mark.parametrize("language", ["ru", "russian"])
+def test_english_only_rejects_russian_before_generation(monkeypatch, language):
+    with pytest.raises(ValueError, match="English-only"):
+        _run_transcription(monkeypatch, 1, is_multilingual=False, language=language)
+
+
+def test_overlapping_interval_text_is_retained(monkeypatch):
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "_transcribe_speech_segments",
+        lambda *args, **kwargs: [
+            [
+                {"text": "first", "timestamp": (1.0, 10.0)},
+                {"text": "second", "timestamp": (5.0, 6.0)},
+                {"text": "last", "timestamp": (11.0, None)},
+            ]
+        ],
+    )
+    result = transformers_pipeline._transcribe_chunks(None, None, [(0, 480000, np.zeros(480000))], 1, "cpu", "ru")
+    assert [item["text"] for item in result] == ["first", "second", "last"]
+    assert result[-1]["timestamp"] == (11.0, None)
+    assert result[1]["timing_status"] == "overlap"
+
+
+def test_debug_diagnostics_preserve_timing_without_changing_transcript(monkeypatch):
+    offsets = [
+        {
+            "text": "retained",
+            "timestamp": (1.0, None),
+            "timing_status": "missing",
+            "local_timestamp": (1.0, None),
+            "source_timestamp": (0.0, 30.0),
+        },
+        {"text": "filtered", "timestamp": (20.0, 21.0), "timing_status": "model"},
+        {"text": "invalid", "timestamp": (float("nan"), None), "timing_status": "invalid"},
+    ]
+    monkeypatch.setattr(transformers_pipeline, "load_pcm_wav", lambda path: np.zeros(480000))
+    monkeypatch.setattr(
+        transformers_pipeline,
+        "_get_speech_segments",
+        lambda *args, **kwargs: ([{"start": 0, "end": 480000}], [(0, 160000)]),
+    )
+    monkeypatch.setattr(transformers_pipeline, "_load_model_and_processor", lambda *args, **kwargs: (None, None))
+    monkeypatch.setattr(transformers_pipeline, "_transcribe_chunks", lambda *args, **kwargs: offsets)
+    normal = transformers_pipeline.transcribe("unused", "test", "cpu")
+    diagnostics = []
+    debug = transformers_pipeline.transcribe("unused", "test", "cpu", diagnostics=diagnostics)
+    assert normal == debug
+    diagnostics = [record for record in diagnostics if record["kind"] == "span"]
+    assert [record["retained"] for record in diagnostics] == [True, False, True]
+    assert diagnostics[0]["source_timestamp"] == [0.0, 30.0]
+    assert diagnostics[2]["timestamp"] == ["nan", None]
+
+
+def test_chunk_mapping_preserves_admitted_samples():
+    audio = np.arange(16000, dtype=np.float32)
+    segments = [{"start": 123, "end": 4000}, {"start": 4500, "end": 15999}]
+    chunks = transformers_pipeline._build_chunks(audio, segments)
+    assert [(a, b) for a, b, _ in chunks] == [(123, 4000), (4500, 15999)]
+    for a, b, chunk in chunks:
+        np.testing.assert_array_equal(chunk, audio[a:b])
+        assert np.shares_memory(chunk, audio)
+
+
+@pytest.mark.parametrize(
+    ("interval", "expected"), [((19.99, 29.0), True), ((20.0, 29.0), False), ((None, 29.0), True)]
+)
+def test_retention_is_independent_of_timing_label(interval, expected):
+    for label in ["model", "overlap", "missing", "invalid"]:
+        retained, reason = transformers_pipeline._retention_decision(
+            {"text": "same words", "timestamp": interval, "timing_status": label}, [(160000, 320000)]
+        )
+        assert retained is expected
+        assert reason
+
+
+def test_malformed_offset_preserves_text_and_raw_debug():
+    model = FakeModel(timestamp=("bad", None))
+    processor = FakeProcessor()
+    processor.tokenizer.decode = Mock(return_value="spoken words")
+    diagnostics = []
+    result = transformers_pipeline._transcribe_speech_segments(
+        model, processor, [np.ones(16000, dtype=np.float32)], "cpu", "en", diagnostics
+    )
+    assert result[0][0]["text"] == "spoken words"
+    assert result[0][0]["timestamp"] == (None, None)
+    assert diagnostics[0]["segments"][0]["timestamp"] == ["bad", None]
+    assert diagnostics[0]["token_ids"] == [1000, 1, 1025]
+
+
+def test_decoding_without_offsets_preserves_full_text():
+    processor = FakeProcessor()
+    processor.tokenizer.decode = Mock(return_value="no timing available")
+    model = FakeModel()
+    model.generate = Mock(return_value={"sequences": [torch.tensor([1])], "segments": [[]]})
+    result = transformers_pipeline._transcribe_speech_segments(
+        model, processor, [np.ones(16000, dtype=np.float32)], "cpu", "ru"
+    )
+    assert result[0][0]["text"] == "no timing available"
+    assert result[0][0]["timestamp"] == (None, None)
+
+
+def test_short_speech_real_postprocessing_and_debug_parity(monkeypatch):
+    from silero_vad import get_speech_timestamps
+
+    class ProbabilityModel:
+        def reset_states(self):
+            self.index = 0
+
+        def __call__(self, chunk, rate):
+            value = 0.99 if 10 <= self.index < 15 else 0.0
+            self.index += 1
+            return torch.tensor(value)
+
+    audio = np.zeros(16000 * 4, dtype=np.float32)
+    monkeypatch.setattr(transformers_pipeline, "load_silero_vad", ProbabilityModel)
+    monkeypatch.setattr(transformers_pipeline, "get_speech_timestamps", get_speech_timestamps)
+    normal = transformers_pipeline._get_speech_segments(audio, "cpu")
+    diagnostics = []
+    debug = transformers_pipeline._get_speech_segments(audio, "cpu", diagnostics)
+    assert normal == debug == ([], [])
+    assert len(diagnostics[0]["probabilities"]) == 125
+    assert sum(p > 0.5 for p in diagnostics[0]["probabilities"]) == 5
+
+
+def test_rejected_admission_records_scores(monkeypatch, audio_classifier):
+    audio_classifier.model.side_effect = None
+    audio_classifier.model.return_value = SimpleNamespace(logits=torch.tensor([[-4.0, 4.0]]))
+    monkeypatch.setattr(transformers_pipeline, "load_silero_vad", lambda: object())
+    monkeypatch.setattr(
+        transformers_pipeline, "get_speech_timestamps", lambda *args, **kwargs: [{"start": 0, "end": 16000}]
+    )
+    diagnostics = []
+    assert transformers_pipeline._get_speech_segments(np.ones(16000, dtype=np.float32), "cpu", diagnostics) == ([], [])
+    window = next(item for item in diagnostics if item["kind"] == "audioset_window")
+    candidate = next(item for item in diagnostics if item["kind"] == "candidate")
+    assert not window["retained"] and window["speech_probability"] < 0.4
+    assert not candidate["retained"] and candidate["reason"] == "no_admitted_window"
+
+
+def test_structured_timing_preserves_skipped_windows_and_single_source_shift():
+    from transformers.models.whisper.generation_whisper import WhisperGenerationMixin, _pad_to_max_length
+
+    sequences = [torch.tensor([1000, 1, 1250]), torch.tensor([1000, 2, 1250])]
+    segments = []
+    for seek, tokens in zip((0.0, 60.0), sequences, strict=True):
+        retrieved, _ = WhisperGenerationMixin._retrieve_segment(
+            seek_sequence=tokens,
+            seek_outputs=[{}],
+            time_offset=torch.tensor([seek]),
+            timestamp_begin=1000,
+            seek_num_frames=torch.tensor([3000]),
+            time_precision=0.02,
+            time_precision_features=0.01,
+            input_stride=2,
+            prev_idx=0,
+            idx=0,
+            return_token_timestamps=False,
+            decoder_input_ids=torch.zeros((1, 1), dtype=torch.long),
+        )
+        segments.extend(retrieved)
+    flat = _pad_to_max_length([segments], 100, "cpu")
+    model = FakeModel()
+    model.generate = Mock(return_value={"sequences": flat, "segments": [segments]})
+    debug = []
+    offsets = transformers_pipeline._transcribe_chunks(
+        model,
+        FakeProcessor(),
+        [(160000, 1600000, np.ones(1440000, dtype=np.float32))],
+        1,
+        "cpu",
+        "en",
+        debug,
+    )
+    assert [(o["text"], o["timestamp"]) for o in offsets] == [
+        ("Segment 1", (10.0, 15.0)),
+        ("Segment 2", (70.0, 75.0)),
+    ]
+    assert model.generate.call_args.kwargs["return_segments"] is True
+    assert debug[0]["segments"][1]["timestamp"] == [60.0, 65.0]
+
+
+@pytest.mark.parametrize(
+    "tokens, expected",
+    [
+        ([1000, 1], (0.0, None)),
+        ([1, 1250], (None, 5.0)),
+        ([1], (None, None)),
+    ],
+)
+def test_generator_fallback_bounds_do_not_claim_timestamp_tokens(tokens, expected):
+    model = FakeModel()
+    model.generate = Mock(
+        return_value={
+            "sequences": [torch.tensor(tokens)],
+            "segments": [[{"tokens": torch.tensor(tokens), "start": torch.tensor(0.0), "end": torch.tensor(5.0)}]],
+        }
+    )
+    debug = []
+    result = transformers_pipeline._transcribe_speech_segments(
+        model,
+        FakeProcessor(),
+        [np.ones(16000, dtype=np.float32)],
+        "cpu",
+        "ru",
+        debug,
+    )
+    assert result[0][0]["text"] == "Segment 1"
+    assert result[0][0]["timestamp"] == expected
+    assert debug[0]["segments"][0]["timestamp"] == [0.0, 5.0]

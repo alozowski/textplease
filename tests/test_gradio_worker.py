@@ -1,5 +1,6 @@
 import os
 import time
+import logging
 from pathlib import Path
 
 import pytest
@@ -131,5 +132,25 @@ def test_cancellation_removes_job_temporary_directory(tmp_path):
         assert not temporary_directories[0].exists()
         assert input_path.read_bytes() == b"original audio"
         assert output_path.read_text() == "existing transcript"
+    finally:
+        worker.terminate()
+
+
+def _record_log_level(config: dict) -> None:
+    logging.getLogger(__name__).debug("debug job marker")
+
+
+def test_reused_worker_resets_debug_level_per_job(tmp_path):
+    worker = PersistentPipelineWorker(_record_log_level)
+    config = {"model_name": "test", "device": "cpu", "output_path": str(tmp_path / "output.tsv")}
+    try:
+        first = worker.submit({**config, "log_level": "DEBUG"}, str(tmp_path / "debug.log"))
+        assert _wait_for_result(worker, first) is None
+        pid = worker.pid
+        second = worker.submit({**config, "log_level": "INFO"}, str(tmp_path / "normal.log"))
+        assert _wait_for_result(worker, second) is None
+        assert worker.pid == pid
+        assert "debug job marker" in (tmp_path / "debug.log").read_text()
+        assert "debug job marker" not in (tmp_path / "normal.log").read_text()
     finally:
         worker.terminate()

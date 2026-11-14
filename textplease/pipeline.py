@@ -1,5 +1,8 @@
 import os
+import json
+import math
 import time
+import hashlib
 import logging
 import tempfile
 from pathlib import Path
@@ -14,10 +17,25 @@ from textplease.utils.device_utils import detect_device
 logger = logging.getLogger(__name__)
 
 
-def save_to_csv(segments: list[dict[str, str]], output_path: str, temporary_directory: str | Path) -> str:
+def _debug_json_value(value):
+    if isinstance(value, float) and not math.isfinite(value):
+        return str(value)
+    if isinstance(value, dict):
+        return {key: _debug_json_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_debug_json_value(item) for item in value]
+    return value
+
+
+def save_to_csv(
+    segments: list[dict[str, str]],
+    output_path: str,
+    temporary_directory: str | Path,
+    diagnostics: list[dict] | None = None,
+) -> str:
     """Save segments to a tab-separated CSV file."""
     if segments:
-        df = pd.DataFrame(segments)
+        df = pd.DataFrame(segments, columns=["start_time", "end_time", "text"])
         df = df[df["text"].astype(str).str.strip() != ""]
     else:
         df = pd.DataFrame(columns=["start_time", "end_time", "text"])
@@ -28,6 +46,26 @@ def save_to_csv(segments: list[dict[str, str]], output_path: str, temporary_dire
     try:
         df.to_csv(temporary_output, index=False, sep="\t")
         temporary_output.chmod(0o600)
+        if diagnostics is not None:
+            debug_output = Path(temporary_directory) / "debug.json"
+            try:
+                debug_output.touch(mode=0o600)
+                debug_output.write_text(
+                    json.dumps(
+                        {
+                            "transcript_sha256": hashlib.sha256(temporary_output.read_bytes()).hexdigest(),
+                            "schema_version": 1,
+                            "events": _debug_json_value(diagnostics),
+                        },
+                        ensure_ascii=False,
+                        indent=2,
+                        allow_nan=False,
+                    ),
+                    encoding="utf-8",
+                )
+                os.replace(debug_output, Path(str(output) + ".debug.json"))
+            finally:
+                debug_output.unlink(missing_ok=True)
         os.replace(temporary_output, output)
     finally:
         temporary_output.unlink(missing_ok=True)
@@ -79,6 +117,13 @@ def _validate_pipeline_config(config: dict) -> None:
     if not output_path or not isinstance(output_path, str):
         raise ValueError(f"Invalid output_path: {output_path}")
 
+    if str(config.get("log_level", "INFO")).upper() == "DEBUG":
+        debug_file = Path(str(output_path) + ".debug.json")
+        if Path(input_path).resolve() == debug_file.resolve() or (
+            debug_file.exists() and Path(input_path).samefile(debug_file)
+        ):
+            raise ValueError("Input and debug output paths must refer to different files")
+
     input_file = Path(input_path)
     output_file = Path(output_path)
     if input_file.resolve() == output_file.resolve() or (output_file.exists() and input_file.samefile(output_file)):
@@ -114,6 +159,8 @@ def run_transcription_pipeline(config: dict) -> None:
     )
     with temporary_directory as work_directory:
         t0 = time.time()
+        diagnostics: list[dict] | None = [] if str(config.get("log_level", "INFO")).upper() == "DEBUG" else None
+        debug_arguments = {} if diagnostics is None else {"diagnostics": diagnostics}
         segments = transcribe_audio(
             input_path,
             model_name,
@@ -121,11 +168,12 @@ def run_transcription_pipeline(config: dict) -> None:
             temporary_directory=work_directory,
             language=language,
             batch_size=whisper_batch_size,
+            **debug_arguments,
         )
         logger.info(f"Transcription: {len(segments)} segments in {time.time() - t0:.2f}s")
 
         t0 = time.time()
-        save_to_csv(segments, output_path, work_directory)
+        save_to_csv(segments, output_path, work_directory, diagnostics=diagnostics)
         logger.info(f"Save: {time.time() - t0:.2f}s")
 
     logger.info(f"Total processing time: {time.time() - start:.2f}s")

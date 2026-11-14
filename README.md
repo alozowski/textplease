@@ -55,6 +55,17 @@ The web app listens only on `127.0.0.1`. It disables public share links, analyti
 
 TextPlease writes tab-separated columns. The example config uses a `.csv` name, which keeps commas in spoken text intact. A file with no speech contains only the header.
 
+The transcript always has exactly these three columns. Text with unresolved timing is retained, and missing or unrepresentable endpoints are blank. Overlapping times are preserved. A warning is logged when timing needs review.
+
+For local diagnostics, add `--debug` at startup (or set `log_level: DEBUG` in the CLI YAML config). This writes `<output_path>.debug.json` alongside the transcript, with VAD probabilities, admission scores and decisions, source chunk bounds, raw token IDs and decoded offsets, timing assessments, and span retention reasons. Records in its `events` list link candidates, chunks, and decoded spans. The debug file contains private transcript text and uses the same restricted file permissions as the transcript. Its `transcript_sha256` identifies the matching transcript; an older debug file may remain after a later normal run. Debug mode produces the same three-column transcript as normal mode. Start either interface with:
+
+```bash
+uv run --locked textplease --debug --config examples/config_example.yaml
+uv run --locked textplease --debug --gradio
+```
+
+The startup flag applies to every job in that web app, including jobs reusing the worker. Clearing a web job removes its debug file together with its other artifacts. The evaluator scores preserved text even when endpoints are missing. Missing endpoints and overlapping intervals count as timestamp violations; missing endpoints make alignment metrics unavailable for the affected group.
+
 | start_time | end_time | text                    |
 |------------|----------|-------------------------|
 | 00:00:00.000 | 00:00:06.000 | Welcome to the demo ... |
@@ -81,7 +92,7 @@ When a batch contains an interval longer than about 30 seconds, Transformers use
 - An average token log-probability below `-1.0` flags low-confidence output.
 - A no-speech probability above `0.6`, combined with an average log-probability below `-1.0`, skips the interval as silence.
 
-Transformers measures compression from token ID bytes. OpenAI Whisper measures UTF-8 text and uses a `2.4` default. Finally, the app clips each timestamp to its source interval, shifts it to the full recording, and writes the model's nonblank text without rewriting it.
+Transformers measures compression from token ID bytes. OpenAI Whisper measures UTF-8 text and uses a `2.4` default. The app reads structured generation segments to preserve elapsed time across long-form windows, then shifts their timestamps to the full recording once. These are model predictions, not independently aligned speech boundaries. An endpoint without a corresponding timestamp token stays blank, even if the generator supplies a fallback bound. Debug output preserves the original bounds and tokens. Uncertain spans are retained for review even when they cannot be compared with AudioSet windows. Other spans retain the current AudioSet overlap filter.
 
 ## License
 

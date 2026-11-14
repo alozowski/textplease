@@ -7,7 +7,8 @@ import pytest
 from textplease import gradio_ui
 
 
-def test_start_transcription_uses_gradio_cached_file(tmp_path):
+@pytest.mark.parametrize("debug", [False, True])
+def test_start_transcription_uses_gradio_cached_file(tmp_path, debug):
     upload_path = tmp_path / "gradio-cache" / "recording.mp3"
     upload_path.parent.mkdir()
     upload_path.touch()
@@ -23,9 +24,11 @@ def test_start_transcription_uses_gradio_cached_file(tmp_path):
         "en",
         "cpu",
         None,
+        debug=debug,
     )
 
     config, log_path = worker.submit.call_args.args
+    assert config["log_level"] == ("DEBUG" if debug else "INFO")
     run = result[-1]
     workspace_path = run["workspace_path"]
     assert config["input_path"] == str(upload_path)

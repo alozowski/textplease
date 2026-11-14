@@ -24,6 +24,7 @@ def _run_worker(
         while True:
             command = command_connection.recv()
             job_id, config, log_path = command
+            logging.getLogger().setLevel(logging.DEBUG if config.get("log_level") == "DEBUG" else logging.INFO)
             file_handler = logging.FileHandler(log_path)
             logging.getLogger().addHandler(file_handler)
             try:

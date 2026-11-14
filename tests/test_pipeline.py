@@ -1,5 +1,7 @@
 import os
 import csv
+import json
+import hashlib
 import logging
 from pathlib import Path
 from unittest.mock import Mock
@@ -177,3 +179,99 @@ def test_atomic_save_failure_preserves_existing_output(monkeypatch, tmp_path):
 
     assert output_path.read_text() == "existing transcript"
     assert not (temporary_directory / "transcript.tsv").exists()
+
+
+def test_debug_mode_keeps_three_columns_and_saves_private_diagnostics(monkeypatch, tmp_path):
+    input_path = tmp_path / "input.wav"
+    input_path.touch()
+    output = tmp_path / "output.csv"
+    segments = [{"start_time": "00:00:01.000", "end_time": "", "text": "unfinished"}]
+
+    def transcribe(*args, diagnostics=None, **kwargs):
+        if diagnostics is not None:
+            diagnostics.append({"text": "unfinished", "timestamp": [1.0, None], "timing_status": "missing"})
+        return segments
+
+    monkeypatch.setattr(pipeline, "transcribe_audio", transcribe)
+    config = {"input_path": str(input_path), "output_path": str(output), "model_name": "test"}
+    pipeline.run_transcription_pipeline(config)
+    normal_bytes = output.read_bytes()
+    debug_path = Path(str(output) + ".debug.json")
+    assert not debug_path.exists()
+    pipeline.run_transcription_pipeline({**config, "log_level": "DEBUG"})
+    assert output.read_bytes() == normal_bytes
+    assert normal_bytes.startswith(b"start_time\tend_time\ttext\n")
+    data = json.loads(debug_path.read_text())
+    assert data["transcript_sha256"] == hashlib.sha256(normal_bytes).hexdigest()
+    assert data["events"][0]["timing_status"] == "missing"
+    if os.name != "nt":
+        assert debug_path.stat().st_mode & 0o777 == 0o600
+    assert not list(tmp_path.glob(".textplease-*"))
+
+
+def test_debug_write_failure_preserves_transcript_and_cleans_temporary_files(monkeypatch, tmp_path):
+    output = tmp_path / "output.tsv"
+    output.write_text("existing transcript")
+    work = tmp_path / "work"
+    work.mkdir()
+
+    def fail_replace(source, target):
+        raise OSError("debug write failed")
+
+    monkeypatch.setattr(pipeline.os, "replace", fail_replace)
+    with pytest.raises(OSError, match="debug write failed"):
+        pipeline.save_to_csv(
+            [{"start_time": "", "end_time": "", "text": "keep me"}],
+            str(output),
+            work,
+            diagnostics=[{"timing_status": "missing"}],
+        )
+    assert output.read_text() == "existing transcript"
+    assert not list(work.iterdir())
+
+
+def test_debug_output_cannot_replace_input(monkeypatch, tmp_path):
+    output = tmp_path / "output.tsv"
+    source = Path(str(output) + ".debug.json")
+    source.write_bytes(b"private audio")
+    runner = Mock()
+    monkeypatch.setattr(pipeline, "transcribe_audio", runner)
+    with pytest.raises(ValueError, match="Input and debug output"):
+        pipeline.run_transcription_pipeline(
+            {
+                "input_path": str(source),
+                "output_path": str(output),
+                "model_name": "test",
+                "log_level": "DEBUG",
+            }
+        )
+    runner.assert_not_called()
+    assert source.read_bytes() == b"private audio"
+
+
+def test_transcript_commit_failure_leaves_detectable_debug_mismatch(monkeypatch, tmp_path):
+    import hashlib
+
+    output = tmp_path / "output.tsv"
+    output.write_text("old transcript")
+    work = tmp_path / "work"
+    work.mkdir()
+    original_replace = pipeline.os.replace
+
+    def fail_transcript(source, target):
+        if Path(target) == output:
+            raise OSError("transcript commit failed")
+        original_replace(source, target)
+
+    monkeypatch.setattr(pipeline.os, "replace", fail_transcript)
+    with pytest.raises(OSError, match="transcript commit failed"):
+        pipeline.save_to_csv(
+            [{"start_time": "", "end_time": "", "text": "new words"}],
+            str(output),
+            work,
+            diagnostics=[{"kind": "span", "text": "new words"}],
+        )
+    assert output.read_text() == "old transcript"
+    document = json.loads(Path(str(output) + ".debug.json").read_text())
+    assert document["transcript_sha256"] != hashlib.sha256(output.read_bytes()).hexdigest()
+    assert not list(work.iterdir())

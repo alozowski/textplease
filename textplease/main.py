@@ -33,17 +33,21 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Transcribe audio locally using open-source ASR models.")
     parser.add_argument("--config", help="Path to YAML config file.")
     parser.add_argument("--gradio", action="store_true", help="Launch the Gradio UI instead of CLI pipeline.")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging and private JSON diagnostics.")
 
     args = parser.parse_args()
 
     if args.gradio:
-        launch_gradio()
+        configure_logging(level=logging.DEBUG if args.debug else logging.INFO)
+        launch_gradio(debug=args.debug)
         return
 
     if not args.config:
         parser.error("--config is required when not using --gradio")
 
     config = load_config(args.config)
+    if args.debug:
+        config["log_level"] = "DEBUG"
 
     if shutil.which("ffmpeg") is None:
         parser.error(FFMPEG_INSTALL_ERROR)
