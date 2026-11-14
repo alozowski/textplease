@@ -51,6 +51,7 @@ prettier.cache/
 # Application-specific
 .gradio/
 test_audios/
+/debugging/
 
 # Docker
 *.pid
