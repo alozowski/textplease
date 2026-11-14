@@ -265,6 +265,13 @@ def _sample_peak_rss(
         stop_event.wait(interval_seconds)
 
 
+def _read_debug(transcript_path: Path) -> dict:
+    document = _read_json_object(Path(str(transcript_path) + ".debug.json"), "debug diagnostics")
+    if document.get("transcript_sha256") != _sha256(transcript_path):
+        raise ValueError("Debug diagnostics do not match the transcript checksum")
+    return document
+
+
 def _parse_tsv(path: Path) -> list[dict]:
     with path.open(newline="", encoding="utf-8") as stream:
         reader = csv.DictReader(stream, delimiter="\t")
@@ -276,8 +283,8 @@ def _parse_tsv(path: Path) -> list[dict]:
                 raise ValueError(f"Transcript row {line_number} has missing fields: {path}")
             segments.append(
                 {
-                    "start_ms": round(parse_time_str(row["start_time"]) * 1000),
-                    "end_ms": round(parse_time_str(row["end_time"]) * 1000),
+                    "start_ms": round(parse_time_str(row["start_time"]) * 1000) if row["start_time"] else None,
+                    "end_ms": round(parse_time_str(row["end_time"]) * 1000) if row["end_time"] else None,
                     "text": row["text"],
                 }
             )
@@ -391,12 +398,14 @@ def _infer(
                 sampler.join()
 
             segments = _parse_tsv(transcript_path)
+            debug = _read_debug(transcript_path) if Path(str(transcript_path) + ".debug.json").exists() else None
             peak_cuda_bytes = torch.cuda.max_memory_allocated() if cuda_metrics else None
             predictions.append(
                 {
                     "id": case["id"],
                     "audio_sha256": actual_checksum,
                     "segments": segments,
+                    "debug": debug,
                     "error": None,
                     "elapsed_seconds": elapsed_seconds,
                     "rtf": elapsed_seconds / (case["duration_ms"] / 1000),
@@ -515,9 +524,11 @@ def _read_predictions(
             text = segment.get("text")
             if (
                 isinstance(start_ms, bool)
-                or not isinstance(start_ms, int)
+                or (start_ms is not None and not isinstance(start_ms, int))
                 or isinstance(end_ms, bool)
-                or not isinstance(end_ms, int)
+                or (end_ms is not None and not isinstance(end_ms, int))
+                or "start_ms" not in segment
+                or "end_ms" not in segment
                 or not isinstance(text, str)
             ):
                 raise ValueError(f"Prediction segments for {case_id} have invalid fields")
@@ -636,6 +647,7 @@ def _score_subset(cases: list[dict], predictions: dict[str, dict], protocol: dic
     reference_non_speech_ms = 0
     missed_speech_ms = 0
     false_alarm_ms = 0
+    timing_complete = True
     reference_boundaries = 0
     predicted_boundaries = 0
     onset_errors: list[int] = []
@@ -651,7 +663,14 @@ def _score_subset(cases: list[dict], predictions: dict[str, dict], protocol: dic
     for case in cases:
         prediction = predictions[case["id"]]
         segment_characters.extend(len(segment["text"]) for segment in prediction["segments"])
-        segment_durations_ms.extend(segment["end_ms"] - segment["start_ms"] for segment in prediction["segments"])
+        timed_segments = [
+            segment
+            for segment in prediction["segments"]
+            if segment["start_ms"] is not None and segment["end_ms"] is not None
+        ]
+        case_timing_complete = len(timed_segments) == len(prediction["segments"])
+        timing_complete = timing_complete and case_timing_complete
+        segment_durations_ms.extend(segment["end_ms"] - segment["start_ms"] for segment in timed_segments)
         normalized_reference = _normalize(case["reference"]["text"])
         normalized_prediction = _normalize(" ".join(segment["text"] for segment in prediction["segments"]))
         reference_interval_data = case["reference"]["speech_intervals_ms"]
@@ -693,8 +712,8 @@ def _score_subset(cases: list[dict], predictions: dict[str, dict], protocol: dic
             non_speech_error_cases += prediction["error"] is not None
         prediction_error_cases += prediction["error"] is not None
 
-        predicted_intervals = [(segment["start_ms"], segment["end_ms"]) for segment in prediction["segments"]]
-        if merged_reference is not None:
+        predicted_intervals = [(segment["start_ms"], segment["end_ms"]) for segment in timed_segments]
+        if merged_reference is not None and case_timing_complete:
             activity_cases += 1
             merged_prediction = _merge_intervals(predicted_intervals, case["duration_ms"])
             reference_duration = sum(end_ms - start_ms for start_ms, end_ms in merged_reference)
@@ -710,7 +729,7 @@ def _score_subset(cases: list[dict], predictions: dict[str, dict], protocol: dic
             boundary_intervals = reference_intervals
         else:
             boundary_intervals = [(segment["start_ms"], segment["end_ms"]) for segment in boundary_source]
-        if boundary_intervals is not None:
+        if boundary_intervals is not None and case_timing_complete:
             reference_onsets = [interval[0] for interval in boundary_intervals]
             reference_offsets = [interval[1] for interval in boundary_intervals]
             boundary_predictions = sorted(
@@ -727,10 +746,10 @@ def _score_subset(cases: list[dict], predictions: dict[str, dict], protocol: dic
             reference_boundaries += len(reference_onsets) + len(reference_offsets)
             predicted_boundaries += len(predicted_onsets) + len(predicted_offsets)
 
-        case_violations = 0
+        case_violations = len(prediction["segments"]) - len(timed_segments)
         previous_start = -1
         previous_end = -1
-        for segment in prediction["segments"]:
+        for segment in timed_segments:
             violations = (
                 int(segment["start_ms"] < 0)
                 + int(segment["end_ms"] <= segment["start_ms"])
@@ -753,7 +772,7 @@ def _score_subset(cases: list[dict], predictions: dict[str, dict], protocol: dic
     character_errors = character_substitutions + character_deletions + character_insertions
     boundary_matches = len(onset_errors) + len(offset_errors)
     boundary_errors = onset_errors + offset_errors
-    return {
+    metrics = {
         "cases": len(cases),
         "reference_words": reference_words,
         "word_substitutions": word_substitutions,
@@ -809,6 +828,32 @@ def _score_subset(cases: list[dict], predictions: dict[str, dict], protocol: dic
         "peak_rss_mb_max": max(peak_rss_bytes) / (1024 * 1024),
         "peak_cuda_mb_max": max(peak_cuda_bytes) / (1024 * 1024) if peak_cuda_bytes else None,
     }
+
+    if not timing_complete:
+        for name in (
+            "reference_speech_ms",
+            "missed_speech_ms",
+            "missed_speech_rate",
+            "reference_non_speech_ms",
+            "false_alarm_ms",
+            "false_alarm_rate",
+            "reference_boundaries",
+            "predicted_boundaries",
+            "matched_boundaries",
+            "boundary_precision",
+            "boundary_recall",
+            "boundary_error_median_ms",
+            "boundary_error_p95_ms",
+            "onset_error_median_ms",
+            "onset_error_p95_ms",
+            "offset_error_median_ms",
+            "offset_error_p95_ms",
+            "segment_duration_median_ms",
+            "segment_duration_p95_ms",
+            "segment_duration_max_ms",
+        ):
+            metrics[name] = None
+    return metrics
 
 
 def _evaluate_gates(metrics: dict, gates: dict) -> tuple[list[dict], bool]:
@@ -1189,6 +1234,7 @@ def _score(
             "## Interpretation limits",
             "",
             "- Boundary and speech-duration metrics compare final TSV intervals with the references. They are end-to-end output metrics, not direct Silero VAD measurements.",
+            "- Missing timestamp endpoints preserve text scoring, count as timestamp violations, and make alignment metrics unavailable for the affected group.",
             "- Activity duration metrics exclude cases whose speech interval reference is null. An em dash means no interval reference was scored.",
             "- Short exact match includes recordings whose total annotated speech is within the configured short duration, even when the surrounding recording is longer.",
             "- WER and CER score the retained decoder spans after text normalization for comparison. The application does not rewrite their nonblank text.",

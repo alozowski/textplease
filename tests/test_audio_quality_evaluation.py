@@ -1,6 +1,7 @@
 import sys
 import copy
 import json
+import runpy
 import hashlib
 import subprocess
 from pathlib import Path
@@ -603,3 +604,31 @@ def test_score_reports_known_substitution_deletion_and_insertion(
     assert "| Word substitutions | 1 |" in markdown
     assert "| Word deletions | 1 |" in markdown
     assert "| Word insertions | 1 |" in markdown
+
+
+def test_transcript_parser_preserves_missing_timestamps(tmp_path):
+    parser = runpy.run_path("scripts/evaluate_audio_quality.py")["_parse_tsv"]
+    transcript = tmp_path / "transcript.tsv"
+    transcript.write_text("start_time\tend_time\ttext\n00:00:01.000\t\tunfinished\n")
+    assert parser(transcript) == [{"start_ms": 1000, "end_ms": None, "text": "unfinished"}]
+
+
+def test_missing_timing_keeps_word_errors_and_blocks_alignment(quality_evaluation_files):
+    module = runpy.run_path("scripts/evaluate_audio_quality.py")
+    case = quality_evaluation_files["manifest_case"]
+    prediction = quality_evaluation_files["prediction_data"]["cases"][0]
+    prediction["segments"][0]["end_ms"] = None
+    metrics = module["_score_subset"]([case], {case["id"]: prediction}, quality_evaluation_files["protocol_data"])
+    assert metrics["wer"] == 0.5
+    assert metrics["timestamp_violations"] == 1
+    assert metrics["boundary_precision"] is None
+    assert metrics["missed_speech_rate"] is None
+
+
+def test_mismatched_debug_transcript_pair_is_rejected(tmp_path):
+    reader = runpy.run_path("scripts/evaluate_audio_quality.py")["_read_debug"]
+    transcript = tmp_path / "transcript.tsv"
+    transcript.write_text("old transcript")
+    Path(str(transcript) + ".debug.json").write_text(json.dumps({"transcript_sha256": "0" * 64}))
+    with pytest.raises(ValueError, match="checksum"):
+        reader(transcript)
