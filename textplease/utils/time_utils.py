@@ -13,8 +13,8 @@ def parse_time_str(time_str: str) -> float:
             raise ValueError(f"Time string must be in HH:MM:SS format, got: {time_str}")
 
         h, m, s = int(parts[0]), int(parts[1]), float(parts[2])
-        if h < 0 or m < 0 or s < 0:
-            raise ValueError(f"Time components must be non-negative: {time_str}")
+        if h < 0 or m < 0 or not math.isfinite(s) or s < 0:
+            raise ValueError(f"Time components must be finite and non-negative: {time_str}")
         if m >= 60 or s >= 60:
             raise ValueError(f"Minutes and seconds must be < 60: {time_str}")
 
@@ -29,7 +29,8 @@ def format_time_precise(seconds: float | None) -> str:
         logger.warning(f"Invalid time value: {seconds}")
         return "00:00:00.000"
 
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = seconds % 60
-    return f"{h:02}:{m:02}:{s:06.3f}"
+    milliseconds = round(seconds * 1000)
+    h, remainder = divmod(milliseconds, 3_600_000)
+    m, remainder = divmod(remainder, 60_000)
+    s, ms = divmod(remainder, 1000)
+    return f"{h:02}:{m:02}:{s:02}.{ms:03}"
